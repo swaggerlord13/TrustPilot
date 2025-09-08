@@ -2,7 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const Category = require("../models/Category");
-const SubCategory = require("../models/SubCategory");
+const SubCategory = require("../models/Subcategory");
 const Company = require("../models/Company");
 const {
   getCategoryCompaniesWithPagination,
@@ -91,3 +91,4 @@ router.get("/:slug/companies", async (req, res) => {
 });
 
 module.exports = router;
+
