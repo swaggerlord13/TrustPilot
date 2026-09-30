@@ -6,6 +6,7 @@ const rateLimit = require("express-rate-limit");
 const cors = require("cors");
 
 const connectDB = require("./config/db");
+const sanitizeBody = require("./middleware/sanitize");
 const authRoutes = require("./Routes/authRoutes");
 const reviewRoutes = require("./Routes/reviewRoutes");
 const categoryRoutes = require("./Routes/categoryRoutes");
@@ -29,6 +30,12 @@ const app = express();
 // Trust first proxy (Render's load balancer). Needed for express-rate-limit
 app.set("trust proxy", 1);
 
+// Use Node's built-in query parser to prevent NoSQL injection via URL params.
+// The default "extended" parser (qs) converts ?age[$gt]=5 into { age: { $gt: "5" } },
+// which attackers can use to inject MongoDB operators. The "simple" parser treats
+// bracket syntax as plain text, keeping query values flat and safe.
+app.set("query parser", "simple");
+
 // ========================
 // SECURITY MIDDLEWARE
 // ========================
@@ -36,7 +43,7 @@ app.set("trust proxy", 1);
 // Set security HTTP headers (protects against XSS, clickjacking, etc.)
 app.use(helmet());
 
-// Rate limiting: max 100 requests per 15 minutes per IP
+// Rate limiting: max 500 requests per 15 minutes per IP
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
@@ -60,8 +67,10 @@ app.use(generalLimiter);
 // Parse JSON (with a size limit to prevent huge payloads)
 app.use(express.json({ limit: "10kb" }));
 
-// NoSQL injection protection handled by Mongoose sanitizeFilter (see config/db.js)
-// This is the Express 5 best practice — protection at the data layer, not middleware
+// Strip MongoDB operators ($gt, $ne, etc.) from request bodies.
+// This is the Express 5 best practice — sanitize input at the middleware layer
+// without breaking server-side queries that legitimately use operators.
+app.use(sanitizeBody);
 
 // CORS: allow your frontend origins (not wide-open "*")
 const allowedOrigins = [
