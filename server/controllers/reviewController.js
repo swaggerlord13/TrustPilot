@@ -1,0 +1,174 @@
+// Add this to your reviewRoutes.js or create a new controller
+
+const Review = require("../models/Review");
+
+/**
+ * @route   GET /api/reviews/browse-mixed
+ * @desc    Get mixed reviews (randomized good and bad) from different companies
+ * @access  Public
+ */
+exports.getMixedReviews = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, search } = req.query;
+
+
+    // Get a mix of reviews using MongoDB aggregation
+    const mixedReviews = await Review.aggregate([
+      // Join with companies
+      {
+        $lookup: {
+          from: "companies",
+          localField: "company",
+          foreignField: "_id",
+          as: "companyData",
+        },
+      },
+      { $unwind: "$companyData" },
+
+      // Filter by company name if search is provided
+      ...(search
+        ? [
+            {
+              $match: {
+                "companyData.name": { $regex: search, $options: "i" },
+              },
+            },
+          ]
+        : []),
+
+      // Join with categories
+      {
+        $lookup: {
+          from: "categories",
+          localField: "companyData.category",
+          foreignField: "_id",
+          as: "categoryData",
+        },
+      },
+      { $unwind: "$categoryData" },
+
+      // Join with users
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "userData",
+        },
+      },
+      { $unwind: "$userData" },
+
+      // Join with review replies
+      {
+        $lookup: {
+          from: "reviewreplies",
+          localField: "_id",
+          foreignField: "review",
+          as: "replyData",
+        },
+      },
+
+      // Add a random field for shuffling
+      { $addFields: { randomField: { $rand: {} } } },
+
+      // Sort by random field to shuffle results
+      { $sort: { randomField: 1 } },
+
+      // Skip and limit for pagination
+      { $skip: (parseInt(page) - 1) * parseInt(limit) },
+      { $limit: parseInt(limit) },
+
+      // Format the output
+      {
+        $project: {
+          _id: 1,
+          title: { $ifNull: ["$title", "Review"] },
+          comment: 1,
+          rating: 1,
+          createdAt: 1,
+          user: "$userData.name",
+          userImage: {
+            $ifNull: [
+              "$userData.profileImage",
+              "https://via.placeholder.com/100?text=User",
+            ],
+          },
+          company: "$companyData.name",
+          companySlug: "$companyData.slug",
+          companyImage: {
+            $ifNull: [
+              "$companyData.logo",
+              {
+                $ifNull: [
+                  "$companyData.companyImage",
+                  "https://via.placeholder.com/150?text=Company+Logo",
+                ],
+              },
+            ],
+          },
+          category: "$categoryData.name",
+          url: {
+            $concat: ["/company/", "$companyData.slug"],
+          },
+          date: {
+            $dateToString: {
+              format: "%B %d, %Y",
+              date: "$createdAt",
+            },
+          },
+          userId: "$userData._id",
+          companyReply: {
+            $cond: {
+              if: { $gt: [{ $size: "$replyData" }, 0] },
+              then: { $arrayElemAt: ["$replyData.content", 0] },
+              else: null,
+            },
+          },
+          hasReply: { $gt: [{ $size: "$replyData" }, 0] },
+        },
+      },
+    ]);
+
+    // Get total count for pagination (respects search filter)
+    const countPipeline = [
+      {
+        $lookup: {
+          from: "companies",
+          localField: "company",
+          foreignField: "_id",
+          as: "companyData",
+        },
+      },
+      { $unwind: "$companyData" },
+      ...(search
+        ? [
+            {
+              $match: {
+                "companyData.name": { $regex: search, $options: "i" },
+              },
+            },
+          ]
+        : []),
+      { $count: "total" },
+    ];
+    const countResult = await Review.aggregate(countPipeline);
+    const totalReviews = countResult.length > 0 ? countResult[0].total : 0;
+    const totalPages = Math.ceil(totalReviews / parseInt(limit));
+
+
+    res.json({
+      reviews: mixedReviews,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalReviews,
+        hasNextPage: parseInt(page) < totalPages,
+        hasPrevPage: parseInt(page) > 1,
+        limit: parseInt(limit),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching mixed reviews:", error);
+    res.status(500).json({ message: "Server Error: " + error.message });
+  }
+};

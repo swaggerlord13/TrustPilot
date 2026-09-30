@@ -1,0 +1,59 @@
+### 1. Register User
+POST http://localhost:5000/api/auth/register
+Content-Type: application/json
+
+{
+  "name": "John",
+  "email": "johndie@example.com",
+  "password": "123456",
+  "profileImage": "https://via.placeholder.com/100"
+}
+
+### 2. Login User
+POST http://localhost:5000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "john@example.com",
+  "password": "123456"
+}
+
+### 3. Create Company
+POST http://localhost:5000/api/companies
+Content-Type: application/json
+
+{
+  "name": "Apple Inc",
+  "website": "https://apple.com",
+  "logo": "https://logo.clearbit.com/apple.com",
+  "description": "Tech company",
+  "category": "68a0caf8ca1a31d773918936", // Category ID
+  
+}
+
+### 4. Create Category with Subcategories
+POST http://localhost:5000/api/categories
+Content-Type: application/json
+
+{
+  "name": "Electronics",
+  "subcategories": [
+    { "name": "Smartphones" },
+    { "name": "Laptops" }
+  ]
+}
+
+### 5. Add Review (Needs Auth Token)
+POST http://localhost:5000/api/reviews
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4YTBjYWExY2ExYTMxZDc3MzkxODkzMyIsImlhdCI6MTc1NTM2ODY1NSwiZXhwIjoxNzU3OTYwNjU1fQ.Kz0pHUzECF86EJuyYREAUvkU9kf8h9FGP6KD9wy9Wjk
+
+
+{
+  "companyId": "68a0caf8ca1a31d773918936", 
+  "rating": 5,
+  "comment": "Amazing products, highly recommend!"
+}
+
+### 6. Get Company Reviews
+GET http://localhost:5000/api/reviews/company/68a0caf8ca1a31d773918936
