@@ -1,5 +1,9 @@
 const mongoose = require("mongoose");
 
+// Enable built-in NoSQL injection protection (Mongoose 8+)
+// Wraps user-provided query values in $eq, neutralizing $gt/$ne injection attempts
+mongoose.set("sanitizeFilter", true);
+
 // Function to connect to MongoDB
 const connectDB = async () => {
   try {

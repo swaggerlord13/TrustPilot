@@ -2,7 +2,7 @@ const express = require("express");
 const dotenv = require("dotenv");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-const mongoSanitize = require("express-mongo-sanitize");
+
 const cors = require("cors");
 
 const connectDB = require("./config/db");
@@ -60,8 +60,8 @@ app.use(generalLimiter);
 // Parse JSON (with a size limit to prevent huge payloads)
 app.use(express.json({ limit: "10kb" }));
 
-// Sanitize data: prevents MongoDB operator injection ($gt, $ne etc.)
-app.use(mongoSanitize({ allowDots: true, replaceWith: "_" }));
+// NoSQL injection protection handled by Mongoose sanitizeFilter (see config/db.js)
+// This is the Express 5 best practice — protection at the data layer, not middleware
 
 // CORS: allow your frontend origins (not wide-open "*")
 const allowedOrigins = [
