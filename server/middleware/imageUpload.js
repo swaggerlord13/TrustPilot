@@ -1,7 +1,7 @@
 // Create a new file: middleware/imageUpload.js
 const dotenv = require("dotenv");
 const multer = require("multer");
-const { CloudinaryStorage } = require("multer-storage-cloudinary");
+const CloudinaryStorage = require("multer-storage-cloudinary");
 const cloudinary = require("cloudinary").v2;
 
 // Load env vars
