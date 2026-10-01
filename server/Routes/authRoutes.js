@@ -402,7 +402,9 @@ router.post("/google", async (req, res) => {
         audience: googleClientId,
       });
       googleUser = ticket.getPayload();
-    } catch {
+    } catch (err) {
+      // Logged so outages (e.g. fetching Google's signing certs) are visible
+      console.warn("Google token verification failed:", err.message);
       return res.status(401).json({ error: "Invalid Google token" });
     }
 
