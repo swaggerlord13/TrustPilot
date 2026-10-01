@@ -107,7 +107,8 @@ async function getPlaceForImport(placeId) {
   const place = await placesRequest(`/places/${encodeURIComponent(placeId)}`, {
     fieldMask: IMPORT_FIELD_MASK,
   });
-  const { city, country } = extractLocation(place.addressComponents);
+  // City, state and country from Google's structured address
+  const { city, state, country } = extractLocation(place.addressComponents);
   return {
     placeId: place.id,
     name: place.displayName?.text || "",
@@ -116,6 +117,8 @@ async function getPlaceForImport(placeId) {
     website: place.websiteUri || "",
     phone: place.nationalPhoneNumber || "",
     city,
+    // State or region, e.g. "Lagos" (Google's administrative_area_level_1)
+    state,
     country,
   };
 }
@@ -124,14 +127,35 @@ async function getPlaceForImport(placeId) {
  * Extract city and country from Places API (New) address components.
  */
 function extractLocation(addressComponents = []) {
+  // Defaults when Google leaves a part out
   let city = "";
+  let state = "";
   let country = "";
+  // Each component is one part of the address, tagged with its types
   for (const comp of addressComponents) {
+    // Types tell us which part this is
     const types = comp.types || [];
+    // Town or city
     if (types.includes("locality")) city = comp.longText || "";
+    // First-level region: a state in Nigeria, a province in South Africa
+    if (types.includes("administrative_area_level_1")) state = comp.longText || "";
+    // Country name
     if (types.includes("country")) country = comp.longText || "";
   }
-  return { city, country };
+  // Return the three parts we store on a company
+  return { city, state: cleanStateName(state, country), country };
+}
+
+/**
+ * Nigerian states come back as "Lagos State"; store "Lagos" so filters group
+ * them together. Only for Nigeria: elsewhere "State" can be part of the real
+ * name (South Africa's "Free State" must stay "Free State").
+ */
+function cleanStateName(state, country) {
+  // Leave non-Nigerian regions exactly as Google names them
+  if (country !== "Nigeria") return state.trim();
+  // Drop a trailing " State" (any case) and surrounding spaces
+  return state.replace(/\s+state$/i, "").trim();
 }
 
 // ── Live reviews with a short in-memory cache ─────────────────

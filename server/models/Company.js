@@ -14,18 +14,8 @@ const generateSlug = (name, city, country) => {
     .trim();
 };
 
-// Helper to extract root domain from a URL for duplicate checking
-const extractDomain = (url) => {
-  if (!url) return null;
-  try {
-    let hostname = new URL(url.startsWith("http") ? url : "https://" + url).hostname;
-    // Strip www. prefix
-    hostname = hostname.replace(/^www\./, "");
-    return hostname.toLowerCase();
-  } catch (e) {
-    return null;
-  }
-};
+// Shared domain helpers, so companies and brands parse websites the same way
+const { extractDomain } = require("../utils/domains");
 
 const companySchema = new mongoose.Schema(
   {
@@ -64,6 +54,15 @@ const companySchema = new mongoose.Schema(
       type: [String],
       default: undefined,
     },
+    // Brand this location belongs to (e.g. MTN); empty for single-location businesses.
+    // Only admins change it (directly, or via admin-run import/link/grouping),
+    // never a website edit by an owner, so nobody can join a brand by themselves.
+    brand: { type: mongoose.Schema.Types.ObjectId, ref: "Brand", index: true },
+    // True once an admin attached or removed this location by hand; automatic
+    // matching (Google link, grouping script) then leaves its brand alone
+    brandSetByAdmin: { type: Boolean },
+    // State or region, e.g. "Lagos" or "Oyo"; used to filter a brand's locations
+    state: { type: String, trim: true },
     address: { type: String },
     phone: { type: String },
     country: { type: String },

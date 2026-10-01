@@ -3,6 +3,8 @@ const Company = require("../models/Company");
 const Category = require("../models/Category");
 const SubCategory = require("../models/Subcategory");
 const Review = require("../models/Review");
+// Shared rating maths, also used for brand pages
+const { ratingStats } = require("../utils/brands");
 const AFRICAN_CITIES = require("../data/africanCities");
 
 // ... keep all your existing functions ...
@@ -21,37 +23,8 @@ exports.getCompanyWithRatings = async (req, res) => {
       return res.status(404).json({ message: "Company not found" });
     }
 
-    // Get review statistics using MongoDB aggregation
-    const reviewStats = await Review.aggregate([
-      { $match: { company: company._id } },
-      {
-        $group: {
-          _id: "$company",
-          avgRating: { $avg: "$rating" },
-          reviewCount: { $sum: 1 },
-          ratingBreakdown: {
-            $push: "$rating",
-          },
-        },
-      },
-    ]);
-
-    let stats = {
-      avgRating: 0,
-      reviewCount: 0,
-      ratingBreakdown: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
-    };
-
-    if (reviewStats.length > 0) {
-      const stat = reviewStats[0];
-      stats.avgRating = Math.round(stat.avgRating * 10) / 10; // Round to 1 decimal
-      stats.reviewCount = stat.reviewCount;
-
-      // Calculate rating breakdown
-      stat.ratingBreakdown.forEach((rating) => {
-        stats.ratingBreakdown[rating]++;
-      });
-    }
+    // Average, count and 1-5 breakdown (same helper as the brand page)
+    const stats = await ratingStats([company._id]);
 
     res.json({
       company,

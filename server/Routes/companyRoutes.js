@@ -121,7 +121,9 @@ router.get("/slug/:slug", async (req, res) => {
   try {
     const company = await Company.findOne({ slug: req.params.slug })
       .populate("category")
-      .populate("subcategory");
+      .populate("subcategory")
+      // Brand name/slug so the page can link to "Part of <brand>"
+      .populate("brand", "name slug");
 
     if (!company) return res.status(404).json({ error: "Company not found" });
 
