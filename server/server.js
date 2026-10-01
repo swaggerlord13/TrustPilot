@@ -70,6 +70,13 @@ app.use(generalLimiter);
 
 // Parse JSON (with a size limit to prevent huge payloads)
 app.use(express.json({ limit: "10kb" }));
+// Express 5 leaves req.body undefined when a request has no body (e.g. the
+// admin Approve/Reject buttons). Give every request an empty object instead,
+// so reading an optional field like req.body.notes can never crash a route.
+app.use((req, res, next) => {
+  if (req.body === undefined) req.body = {};
+  next();
+});
 
 // Strip MongoDB operators ($gt, $ne, etc.) from request bodies.
 // This is the Express 5 best practice — sanitize input at the middleware layer
