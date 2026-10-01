@@ -1,6 +1,8 @@
 // routes/categories.js
 const express = require("express");
 const { protect } = require("../middleware/authMiddleware");
+// Delete records together with everything that belongs to them
+const { deleteCompaniesCascade } = require("../utils/cascade");
 const { admin } = require("../middleware/adminMiddleware");
 const router = express.Router();
 const Category = require("../models/Category");
@@ -9,6 +11,8 @@ const Company = require("../models/Company");
 const {
   getCategoryCompaniesWithPagination,
 } = require("../controllers/categoryController");
+// Logs unexpected errors and answers without leaking internal details
+const { sendServerError } = require("../utils/http");
 
 // ✅ Get all categories with their subcategories
 router.get("/", async (req, res) => {
@@ -31,7 +35,7 @@ router.get("/", async (req, res) => {
 
     res.json(categoriesWithSubs);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -44,7 +48,7 @@ router.post("/", protect, admin, async (req, res) => {
     const category = await Category.create({ name });
     res.status(201).json(category);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -62,7 +66,12 @@ router.delete("/:id", protect, admin, async (req, res) => {
 
     // Delete all companies under those subcategories
     const subcategoryIds = subcategories.map((sub) => sub._id);
-    await Company.deleteMany({ subcategory: { $in: subcategoryIds } });
+    // ...with their reviews (and replies) and business claims
+    // (companies filed directly under the category, e.g. Google imports, too)
+    const companyIds = await Company.distinct("_id", {
+      $or: [{ category: category._id }, { subcategory: { $in: subcategoryIds } }],
+    });
+    await deleteCompaniesCascade(companyIds);
 
     // Delete the subcategories
     await SubCategory.deleteMany({ category: category._id });
@@ -75,7 +84,7 @@ router.delete("/:id", protect, admin, async (req, res) => {
         "Category, its subcategories, and all related companies deleted successfully",
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -92,7 +101,7 @@ router.get("/:slug/companies", async (req, res) => {
     const companies = await Company.find({ category: category._id }).lean();
     res.json(companies);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 

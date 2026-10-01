@@ -21,6 +21,8 @@ const Category = require("../models/Category");
 // Reviews of whole brands, for moderation and clean-up
 const BrandReview = require("../models/BrandReview");
 const { escapeRegex, isValidId } = require("../utils/brands");
+// Safe http(s) links for website/logo (shared with the business dashboard)
+const { normalizeHttpUrl } = require("../utils/input");
 
 // Every route in this file: logged in AND admin
 router.use(protect, admin);
@@ -29,30 +31,10 @@ router.use(protect, admin);
 const MAX_ATTACH = 200;
 
 /**
- * Turn a website/logo value into a safe http(s) URL string, "" for empty,
- * or null when it is not a valid http(s) URL (blocks "javascript:" links).
- */
-function normalizeHttpUrl(value) {
-  // Missing or blank means "no URL"
-  if (value === undefined || value === null || String(value).trim() === "") return "";
-  // Trimmed text form
-  const text = String(value).trim();
-  try {
-    // Allow "mtn.ng" by assuming https
-    const url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`);
-    // Only web links are allowed
-    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    // Not parseable as a URL
-    return null;
-  }
-}
-
-/**
  * Validate and pick the editable brand fields from a request body.
  * Returns { data } on success or { error } with a message for the admin.
  */
-async function readBrandBody(body, { requireName }) {
+async function readBrandBody(body, { requireName, current = null }) {
   // Only these fields may be set by the client
   const data = {};
   // Name: required on create, optional on edit
@@ -64,13 +46,15 @@ async function readBrandBody(body, { requireName }) {
     data.name = name;
   }
   // Website: must be an http(s) URL when given
-  if (body.website !== undefined) {
+  // Unchanged values are skipped, so an old value saved before these checks
+  // existed never blocks editing the brand's other fields
+  if (body.website !== undefined && body.website !== current?.website) {
     const website = normalizeHttpUrl(body.website);
     if (website === null) return { error: "Website must be a valid http(s) URL" };
     data.website = website;
   }
   // Logo: same URL rule as the website
-  if (body.logo !== undefined) {
+  if (body.logo !== undefined && body.logo !== current?.logo) {
     const logo = normalizeHttpUrl(body.logo);
     if (logo === null) return { error: "Logo must be a valid http(s) URL" };
     data.logo = logo;
@@ -228,12 +212,12 @@ router.put("/:id", async (req, res) => {
   try {
     // Reject malformed ids before querying
     if (!isValidId(req.params.id)) return res.status(400).json({ error: "Invalid brand ID" });
-    // Validate only the fields that were sent
-    const { data, error } = await readBrandBody(req.body || {}, { requireName: false });
-    if (error) return res.status(400).json({ error });
     // Load the brand so model hooks (slug/domain) run on save
     const brand = await Brand.findById(req.params.id);
     if (!brand) return res.status(404).json({ error: "Brand not found" });
+    // Validate only the fields that were sent (unchanged links are not re-checked)
+    const { data, error } = await readBrandBody(req.body || {}, { requireName: false, current: brand });
+    if (error) return res.status(400).json({ error });
     // Apply the validated changes and save
     Object.assign(brand, data);
     await brand.save();

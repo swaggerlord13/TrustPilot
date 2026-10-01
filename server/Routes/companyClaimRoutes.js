@@ -4,6 +4,8 @@ const Company = require("../models/Company");
 // requireVerified: only verified emails may claim a business
 const { protect, requireVerified } = require("../middleware/authMiddleware");
 const { admin } = require("../middleware/adminMiddleware");
+// Logs unexpected errors and answers without leaking internal details
+const { sendServerError } = require("../utils/http");
 const router = express.Router();
 
 /**
@@ -62,7 +64,7 @@ router.post("/", protect, requireVerified, async (req, res) => {
       return res.status(400).json({ error: "You already have an active claim for this company" });
     }
     console.error("Claim error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -78,7 +80,7 @@ router.get("/my-claims", protect, async (req, res) => {
 
     res.json(claims);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -93,7 +95,8 @@ router.get("/my-companies", protect, async (req, res) => {
       status: "approved",
     }).populate("company", "name slug logo url description category");
 
-    const companies = approvedClaims.map((claim) => ({
+    // Skip claims whose company was deleted (older data from before deletes cleaned up)
+    const companies = approvedClaims.filter((claim) => claim.company).map((claim) => ({
       _id: claim.company._id,
       name: claim.company.name,
       slug: claim.company.slug,
@@ -107,7 +110,7 @@ router.get("/my-companies", protect, async (req, res) => {
 
     res.json(companies);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -125,7 +128,7 @@ router.get("/pending", protect, admin, async (req, res) => {
 
     res.json({ claims: pendingClaims });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -170,7 +173,7 @@ router.put("/:id/approve", protect, admin, async (req, res) => {
       claim,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -203,7 +206,7 @@ router.put("/:id/reject", protect, admin, async (req, res) => {
       claim,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 

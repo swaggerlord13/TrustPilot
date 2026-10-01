@@ -17,9 +17,11 @@ const categorySchema = new mongoose.Schema(
   { timestamps: true } // Adds createdAt & updatedAt
 );
 
-// Before saving, auto-generate slug
+// Slug is made once, when the category is created. Renaming keeps it, so
+// links and search results pointing at /categories/<slug> keep working
+// (the same rule as brands)
 categorySchema.pre("save", function (next) {
-  this.slug = slugify(this.name, { lower: true, strict: true });
+  if (this.isNew || !this.slug) this.slug = slugify(this.name, { lower: true, strict: true });
   next();
 });
 

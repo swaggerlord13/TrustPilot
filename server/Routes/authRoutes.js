@@ -21,9 +21,11 @@ const googleClient = new OAuth2Client();
 const { generateToken } = require("../utils/token");
 
 // Plain-text request values only (objects like {"$ne": null} become "")
-const { asText, asPassword, isValidEmail } = require("../utils/input");
+const { asText, asPassword, isValidEmail, normalizeHttpUrl } = require("../utils/input");
 // Exact, case-insensitive name match with regex characters escaped
 const { exactTextFilter } = require("../utils/brands");
+// Logs unexpected errors and answers without leaking internal details
+const { sendServerError } = require("../utils/http");
 
 // Helper to get the frontend URL (used in email links)
 const getClientUrl = () => {
@@ -58,7 +60,7 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "Password must be at least 8 characters long" });
     }
 
-    const userExists = await User.findOne({ email });
+    const userExists = await User.findByEmail(email);
     if (userExists) {
       return res.status(400).json({ error: "Email already registered" });
     }
@@ -104,7 +106,7 @@ router.post("/register", async (req, res) => {
       message: "Account created! Please check your email to verify your account.",
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -119,7 +121,7 @@ router.post("/login", async (req, res) => {
     if (!email || !password)
       return res.status(401).json({ error: "Invalid email or password" });
 
-    const user = await User.findOne({ email });
+    const user = await User.findByEmail(email);
     if (!user)
       return res.status(401).json({ error: "Invalid email or password" });
 
@@ -153,7 +155,7 @@ router.post("/login", async (req, res) => {
       token: generateToken(user),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -182,7 +184,7 @@ router.get("/verify-email/:token", async (req, res) => {
 
     // Link for a changed address: switch to it now, if nobody took it meanwhile
     if (user.pendingEmail) {
-      if (await User.exists({ email: user.pendingEmail, _id: { $ne: user._id } })) {
+      if (await User.findByEmail(user.pendingEmail, user._id)) {
         user.pendingEmail = undefined;
         user.emailVerificationToken = undefined;
         user.emailVerificationExpire = undefined;
@@ -216,7 +218,7 @@ router.get("/verify-email/:token", async (req, res) => {
     });
   } catch (err) {
     console.error("Verify email error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -229,7 +231,7 @@ router.post("/resend-verification", async (req, res) => {
     // Plain-text email only (see asText)
     const email = asText(req.body.email);
 
-    const user = email ? await User.findOne({ email }) : null;
+    const user = email ? await User.findByEmail(email) : null;
 
     // Don't reveal whether the email exists
     if (!user || user.isEmailVerified) {
@@ -265,7 +267,7 @@ router.post("/resend-verification", async (req, res) => {
     });
   } catch (err) {
     console.error("Resend verification error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -341,7 +343,7 @@ router.put("/me", protect, async (req, res) => {
       if (!isValidEmail(newEmail)) {
         return res.status(400).json({ error: "Please enter a valid email address" });
       }
-      if (await User.exists({ email: newEmail, _id: { $ne: user._id } })) {
+      if (await User.findByEmail(newEmail, user._id)) {
         return res.status(400).json({ error: "That email is already used by another account" });
       }
       user.pendingEmail = newEmail;
@@ -406,7 +408,7 @@ router.post("/forgot-password", async (req, res) => {
     // Plain-text email only (see asText)
     const email = asText(req.body.email);
 
-    const user = email ? await User.findOne({ email }) : null;
+    const user = email ? await User.findByEmail(email) : null;
     if (!user) {
       // Don't reveal whether email exists
       return res.json({
@@ -449,7 +451,7 @@ router.post("/forgot-password", async (req, res) => {
     });
   } catch (err) {
     console.error("Forgot password error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -502,7 +504,7 @@ router.put("/reset-password/:token", async (req, res) => {
     res.json({ message: "Password reset successful. You can now log in." });
   } catch (err) {
     console.error("Reset password error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -554,7 +556,7 @@ router.post("/google", async (req, res) => {
 
     // The account already linked to this Google account wins; otherwise
     // look for an account using the same email address
-    let user = (await User.findOne({ googleId })) || (await User.findOne({ email }));
+    let user = (await User.findOne({ googleId })) || (await User.findByEmail(email));
 
     if (user) {
       if (!user.googleId) {
@@ -636,7 +638,7 @@ router.put("/make-admin", async (req, res) => {
       return res.status(400).json({ error: "Email is required" });
     }
 
-    const user = await User.findOne({ email });
+    const user = await User.findByEmail(email);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
@@ -655,7 +657,7 @@ router.put("/make-admin", async (req, res) => {
     });
   } catch (err) {
     console.error("Make admin error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -679,7 +681,10 @@ router.post("/register-business", async (req, res) => {
     const email = asText(req.body.email);
     const password = asPassword(req.body.password);
     const companyName = asText(req.body.companyName);
-    const companyUrl = asText(req.body.companyUrl);
+    // Company website, only used if a new company is created: a real web
+    // link, or nothing ("javascript:" and junk are dropped, never saved).
+    // Not an error, because claiming an existing company never uses it.
+    const companyUrl = normalizeHttpUrl(req.body.companyUrl) || "";
     const role = asText(req.body.role);
     const jobTitle = asText(req.body.jobTitle);
     const reason = asText(req.body.reason);
@@ -715,7 +720,7 @@ router.post("/register-business", async (req, res) => {
     }
 
     // --- Check if user already exists ---
-    const userExists = await User.findOne({ email });
+    const userExists = await User.findByEmail(email);
     if (userExists) {
       return res.status(400).json({ error: "Email already registered. Please login and claim your company from its page." });
     }
@@ -764,7 +769,7 @@ router.post("/register-business", async (req, res) => {
     if (!company) {
       company = await Company.create({
         name: companyName.trim(),
-        url: companyUrl ? companyUrl.trim() : "",
+        url: companyUrl,
         source: "user",
       });
     }
@@ -805,7 +810,7 @@ router.post("/register-business", async (req, res) => {
       });
     }
 
-    res.status(500).json({ error: err.message || "Server error. Please try again later." });
+    sendServerError(res, err);
   }
 });
 

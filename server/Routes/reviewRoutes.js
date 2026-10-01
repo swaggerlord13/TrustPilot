@@ -10,6 +10,10 @@ const router = express.Router();
 const { getMixedReviews } = require("../controllers/reviewController");
 // Sort options shared with brand reviews
 const { reviewSortFor } = require("../utils/reviewSort");
+// Deletes a review with its replies
+const { deleteReviewsWhere } = require("../utils/cascade");
+// Logs unexpected errors and answers without leaking internal details
+const { sendServerError } = require("../utils/http");
 
 /**
  * @route   POST /api/reviews
@@ -59,7 +63,7 @@ router.post("/", protect, requireVerified, async (req, res) => {
     res.status(201).json(populatedReview);
   } catch (err) {
     console.error("Error creating review:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -79,7 +83,7 @@ router.get("/", async (req, res) => {
     res.json(reviews);
   } catch (err) {
     console.error("Error fetching reviews:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -132,7 +136,7 @@ router.get("/company/:companyId", async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching company reviews:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -158,7 +162,7 @@ router.get("/user/:userId", async (req, res) => {
     res.json(reviews);
   } catch (err) {
     console.error("Error fetching user reviews:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -201,7 +205,7 @@ router.put("/:reviewId", protect, requireVerified, async (req, res) => {
     res.json(updatedReview);
   } catch (err) {
     console.error("Error updating review:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -228,13 +232,13 @@ router.delete("/:reviewId", protect, async (req, res) => {
         .json({ error: "You can only delete your own reviews" });
     }
 
-    // Delete the review
-    await Review.findByIdAndDelete(reviewId);
+    // Delete the review and the replies to it
+    await deleteReviewsWhere({ _id: review._id });
 
     res.json({ message: "Review deleted successfully" });
   } catch (err) {
     console.error("Error deleting review:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -276,7 +280,7 @@ router.get("/stats/:companyId", async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching review stats:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 // Add this route
@@ -307,7 +311,7 @@ router.get("/:reviewId", async (req, res) => {
     res.json(review);
   } catch (err) {
     console.error("Error fetching single review:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -326,7 +330,7 @@ router.get("/:reviewId/replies", async (req, res) => {
     res.json(reply || null);
   } catch (err) {
     console.error("Error fetching review reply:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -401,7 +405,7 @@ router.get("/company/:companyId/with-replies", async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching reviews with replies:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -432,7 +436,7 @@ router.post("/:reviewId/user-reply", protect, requireVerified, async (req, res) 
     });
     res.status(201).json({ success: true, reply });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -453,7 +457,7 @@ router.put("/:reviewId/user-reply", protect, requireVerified, async (req, res) =
     await reply.save();
     res.json({ success: true, reply });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -464,7 +468,7 @@ router.delete("/:reviewId/user-reply", protect, async (req, res) => {
     if (!reply) return res.status(404).json({ error: "Reply not found" });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
