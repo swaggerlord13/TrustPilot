@@ -1,13 +1,17 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
 const { protect } = require("../middleware/authMiddleware");
 const sendEmail = require("../utils/sendEmail");
 const emailTemplates = require("../utils/emailTemplates");
 const router = express.Router();
 
-// We'll use native fetch (Node 18+) to verify social tokens — no extra packages needed
+// Google ID tokens are verified with Google's official library (checks the
+// signature, expiry, issuer and that the token was issued for OUR client ID).
+// Other social tokens are verified with native fetch (Node 18+).
+const googleClient = new OAuth2Client();
 
 // Helper to generate JWT
 const generateToken = (id) => {
@@ -385,16 +389,32 @@ router.post("/google", async (req, res) => {
       return res.status(400).json({ error: "Google credential is required" });
     }
 
-    const googleRes = await fetch(
-      `https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`
-    );
+    const googleClientId = process.env.GOOGLE_CLIENT_ID;
+    if (!googleClientId) {
+      console.error("Google sign-in error: GOOGLE_CLIENT_ID is not set");
+      return res.status(500).json({ error: "Google sign-in is not configured" });
+    }
 
-    if (!googleRes.ok) {
+    let googleUser;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: googleClientId,
+      });
+      googleUser = ticket.getPayload();
+    } catch (err) {
+      // Logged so outages (e.g. fetching Google's signing certs) are visible
+      console.warn("Google token verification failed:", err.message);
       return res.status(401).json({ error: "Invalid Google token" });
     }
 
-    const googleUser = await googleRes.json();
-    const { sub: googleId, email, name, picture } = googleUser;
+    const { sub: googleId, email, email_verified: emailVerified, name, picture } = googleUser || {};
+
+    // Only trust emails Google has verified; otherwise anyone could claim an
+    // address and be linked to an existing account with that email.
+    if (!googleId || !email || emailVerified !== true) {
+      return res.status(401).json({ error: "Your Google email address is not verified" });
+    }
 
     let user = await User.findOne({
       $or: [{ googleId }, { email }],
@@ -412,7 +432,7 @@ router.post("/google", async (req, res) => {
     } else {
       // Social auth users are auto-verified (Google already verified their email)
       user = await User.create({
-        name,
+        name: name || email.split("@")[0],
         email,
         googleId,
         profileImage: picture || "",

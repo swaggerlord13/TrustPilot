@@ -1,0 +1,4 @@
+# Secrets: real environment files must never be committed
+.env
+.env.*
+!.env.example
