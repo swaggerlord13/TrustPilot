@@ -58,6 +58,12 @@ const companySchema = new mongoose.Schema(
       index: true,
       sparse: true,
     },
+    // Fields filled from Google when an existing company was linked
+    // (url/address/phone), so unlinking can remove exactly those.
+    googleFilledFields: {
+      type: [String],
+      default: undefined,
+    },
     address: { type: String },
     phone: { type: String },
     country: { type: String },
