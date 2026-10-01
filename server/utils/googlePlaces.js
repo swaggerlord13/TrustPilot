@@ -147,16 +147,20 @@ function formatReviews(place) {
     rating: place.rating ?? null,
     userRatingCount: place.userRatingCount ?? 0,
     googleMapsUri: place.googleMapsUri || "",
-    reviews: (place.reviews || []).map((review) => ({
-      authorName: review.authorAttribution?.displayName || "Google user",
-      authorUri: review.authorAttribution?.uri || "",
-      authorPhotoUri: review.authorAttribution?.photoUri || "",
-      rating: review.rating ?? null,
-      text: review.text?.text || review.originalText?.text || "",
-      relativePublishTimeDescription: review.relativePublishTimeDescription || "",
-      publishTime: review.publishTime || null,
-      googleMapsUri: review.googleMapsUri || "",
-    })),
+    // Google picks the 5 "most relevant" reviews and Places API (New) has no
+    // sort option, so show the newest of those first
+    reviews: [...(place.reviews || [])]
+      .sort((a, b) => (Date.parse(b.publishTime) || 0) - (Date.parse(a.publishTime) || 0))
+      .map((review) => ({
+        authorName: review.authorAttribution?.displayName || "Google user",
+        authorUri: review.authorAttribution?.uri || "",
+        authorPhotoUri: review.authorAttribution?.photoUri || "",
+        rating: review.rating ?? null,
+        text: review.text?.text || review.originalText?.text || "",
+        relativePublishTimeDescription: review.relativePublishTimeDescription || "",
+        publishTime: review.publishTime || null,
+        googleMapsUri: review.googleMapsUri || "",
+      })),
   };
 }
 

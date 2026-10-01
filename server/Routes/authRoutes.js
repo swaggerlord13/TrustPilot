@@ -54,7 +54,7 @@ router.post("/register", async (req, res) => {
     try {
       await sendEmail({
         email: user.email,
-        subject: "TrustPilot Africa - Verify Your Email",
+        subject: "Trustpilotafrica - Verify Your Email",
         html: emailTemplates.emailVerification({
           userName: user.name,
           verifyUrl,
@@ -151,7 +151,7 @@ router.get("/verify-email/:token", async (req, res) => {
     try {
       await sendEmail({
         email: user.email,
-        subject: "Welcome to TrustPilot Africa!",
+        subject: "Welcome to Trustpilotafrica!",
         html: emailTemplates.welcomeEmail({ userName: user.name }),
       });
     } catch (emailErr) {
@@ -194,7 +194,7 @@ router.post("/resend-verification", async (req, res) => {
     try {
       await sendEmail({
         email: user.email,
-        subject: "TrustPilot Africa - Verify Your Email",
+        subject: "Trustpilotafrica - Verify Your Email",
         html: emailTemplates.emailVerification({
           userName: user.name,
           verifyUrl,
@@ -294,7 +294,7 @@ router.post("/forgot-password", async (req, res) => {
     try {
       await sendEmail({
         email: user.email,
-        subject: "TrustPilot Africa - Password Reset",
+        subject: "Trustpilotafrica - Password Reset",
         html: emailTemplates.passwordReset({
           userName: user.name,
           resetUrl,
@@ -746,7 +746,7 @@ router.post("/register-business", async (req, res) => {
     try {
       await sendEmail({
         email: user.email,
-        subject: "TrustPilot Africa - Verify Your Email",
+        subject: "Trustpilotafrica - Verify Your Email",
         html: emailTemplates.emailVerification({
           userName: user.name,
           verifyUrl,

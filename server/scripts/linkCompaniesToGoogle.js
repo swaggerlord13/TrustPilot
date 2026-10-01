@@ -93,7 +93,7 @@ async function main() {
   if (max) query.limit(max);
   const companies = await query.lean();
 
-  console.log("TrustPilot.Africa - Link companies to Google");
+  console.log("Trustpilotafrica - Link companies to Google");
   console.log("==============================================");
   console.log("Companies to check: " + companies.length + (values.country ? " (" + values.country + ")" : ""));
   console.log("Google usage:       up to " + companies.length + " searches + " + companies.length + " lookups");

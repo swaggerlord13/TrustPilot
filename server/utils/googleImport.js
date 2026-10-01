@@ -1,5 +1,5 @@
 /**
- * Turns Google places into TrustPilot.Africa company listings.
+ * Turns Google places into Trustpilotafrica company listings.
  * Shared by the admin import routes and scripts/seedGoogleCompanies.js.
  *
  * Missing categories from our own mapping are created automatically.
@@ -13,7 +13,7 @@ const Category = require("../models/Category");
 const { getPlaceForImport } = require("./googlePlaces");
 
 // ============================================================
-// Google Places → TrustPilot.Africa category mapping
+// Google Places → Trustpilotafrica category mapping
 // Maps common Google Place types to our category names
 // ============================================================
 const FALLBACK_CATEGORY = "Business Services";
