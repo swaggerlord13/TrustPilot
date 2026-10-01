@@ -2,6 +2,7 @@
  * Turns Google places into TrustPilot.Africa company listings.
  * Shared by the admin import routes and scripts/seedGoogleCompanies.js.
  *
+ * Missing categories from our own mapping are created automatically.
  * Only listing basics are stored (name, website, address, phone, city,
  * country) plus the place ID. Google ratings, reviews and photos are NOT
  * stored; the company page fetches them live via getPlaceReviews().
@@ -15,6 +16,8 @@ const { getPlaceForImport } = require("./googlePlaces");
 // Google Places → TrustPilot.Africa category mapping
 // Maps common Google Place types to our category names
 // ============================================================
+const FALLBACK_CATEGORY = "Business Services";
+
 const GOOGLE_TYPE_TO_CATEGORY = {
   // Animals & Pets
   pet_store: "Animals & Pets",
@@ -170,14 +173,40 @@ function mapGoogleToCategory(googleTypes = [], placeName = "") {
   }
 
   // 3. Default to Business Services
-  return "Business Services";
+  return FALLBACK_CATEGORY;
+}
+
+// Every category name this importer can produce. Only these are created
+// automatically, so imports can never invent arbitrary categories.
+const KNOWN_CATEGORIES = new Set([
+  ...Object.values(GOOGLE_TYPE_TO_CATEGORY),
+  ...Object.values(KEYWORD_TO_CATEGORY),
+  FALLBACK_CATEGORY,
+]);
+
+/**
+ * Find a category by name, creating it if it's one of our known categories.
+ * Returns null for unknown names.
+ */
+async function findOrCreateCategory(name) {
+  const existing = await Category.findOne({ name });
+  if (existing || !KNOWN_CATEGORIES.has(name)) return existing;
+  try {
+    return await Category.create({ name });
+  } catch (err) {
+    // Another import created it at the same moment
+    if (err.code === 11000) return Category.findOne({ name });
+    throw err;
+  }
 }
 
 class ImportSkipError extends Error {
-  constructor(message, status = 400) {
+  // extra: safe fields added to the API error response (e.g. companySlug)
+  constructor(message, status = 400, extra = {}) {
     super(message);
     this.name = "ImportSkipError";
     this.status = status;
+    this.extra = extra;
   }
 }
 
@@ -188,13 +217,15 @@ class ImportSkipError extends Error {
  */
 async function importPlaceAsCompany(placeId, { categoryOverride, fallbackCountry = "" } = {}) {
   const existing = await Company.findOne({ googlePlaceId: placeId });
-  if (existing) throw new ImportSkipError("Company already imported", 409);
+  if (existing) {
+    throw new ImportSkipError("Company already imported", 409, { companySlug: existing.slug });
+  }
 
   const place = await getPlaceForImport(placeId);
   if (!place.name) throw new ImportSkipError("Google returned no name for this place");
 
   const categoryName = categoryOverride || mapGoogleToCategory(place.types, place.name);
-  const category = await Category.findOne({ name: categoryName });
+  const category = await findOrCreateCategory(categoryName);
   if (!category) throw new ImportSkipError(`Category "${categoryName}" not found in our DB`);
 
   try {
@@ -218,4 +249,4 @@ async function importPlaceAsCompany(placeId, { categoryOverride, fallbackCountry
   }
 }
 
-module.exports = { mapGoogleToCategory, importPlaceAsCompany, ImportSkipError };
+module.exports = { mapGoogleToCategory, importPlaceAsCompany, ImportSkipError, KNOWN_CATEGORIES };

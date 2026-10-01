@@ -19,7 +19,7 @@ function buildSearchQuery(query, country) {
 function sendGoogleError(res, err, fallbackMessage) {
   const status = err instanceof GooglePlacesError || err instanceof ImportSkipError ? err.status : 500;
   if (status < 500) {
-    return res.status(status).json({ error: err.message });
+    return res.status(status).json({ error: err.message, ...(err.extra || {}) });
   }
   console.error(fallbackMessage, err.message);
   return res.status(status).json({ error: fallbackMessage });
@@ -69,9 +69,18 @@ router.post("/search", protect, admin, async (req, res) => {
     }
 
     const places = await searchText(buildSearchQuery(query, country));
+
+    // Flag places that are already on the site so the admin UI can link to them
+    const existing = await Company.find({ googlePlaceId: { $in: places.map((p) => p.placeId) } })
+      .select("googlePlaceId slug")
+      .lean();
+    const slugByPlaceId = new Map(existing.map((c) => [c.googlePlaceId, c.slug]));
+
     const results = places.map((place) => ({
       ...place,
       suggestedCategory: mapGoogleToCategory(place.types, place.name),
+      alreadyImported: slugByPlaceId.has(place.placeId),
+      companySlug: slugByPlaceId.get(place.placeId) || null,
     }));
 
     res.json({ results, count: results.length });
