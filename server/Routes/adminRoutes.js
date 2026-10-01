@@ -12,6 +12,8 @@ const { admin } = require("../middleware/adminMiddleware");
 const User = require("../models/User");
 const Company = require("../models/Company");
 const Review = require("../models/Review");
+// Reviews of whole brands (deleted with their author)
+const BrandReview = require("../models/BrandReview");
 const Category = require("../models/Category");
 const SubCategory = require("../models/Subcategory");
 const ReviewReply = require("../models/ReviewReply");
@@ -29,26 +31,36 @@ router.use(protect, admin);
  */
 router.get("/stats", async (req, res) => {
   try {
-    const [totalUsers, totalCompanies, totalReviews, totalCategories] =
+    const [totalUsers, totalCompanies, locationReviews, brandReviews, totalCategories] =
       await Promise.all([
         User.countDocuments(),
         Company.countDocuments(),
         Review.countDocuments(),
+        // Reviews of whole brands count as reviews too
+        BrandReview.countDocuments(),
         Category.countDocuments(),
       ]);
+    // All reviews, location and brand
+    const totalReviews = locationReviews + brandReviews;
 
     // Recent activity: last 7 days
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const [newUsers, newReviews, newCompanies] = await Promise.all([
+    const [newUsers, newLocationReviews, newBrandReviews, newCompanies] = await Promise.all([
       User.countDocuments({ createdAt: { $gte: weekAgo } }),
       Review.countDocuments({ createdAt: { $gte: weekAgo } }),
+      // New reviews of whole brands this week
+      BrandReview.countDocuments({ createdAt: { $gte: weekAgo } }),
       Company.countDocuments({ createdAt: { $gte: weekAgo } }),
     ]);
+    // All new reviews this week, location and brand
+    const newReviews = newLocationReviews + newBrandReviews;
 
     res.json({
       totalUsers,
       totalCompanies,
       totalReviews,
+      // Split, so the dashboard can show brand reviews separately if needed
+      brandReviews,
       totalCategories,
       newUsers,
       newReviews,
@@ -155,6 +167,8 @@ router.delete("/users/bulk", async (req, res) => {
 
     // Delete users' reviews first
     await Review.deleteMany({ user: { $in: validIds } });
+    // ...and their reviews of whole brands
+    await BrandReview.deleteMany({ user: { $in: validIds } });
     // Delete the users
     const result = await User.deleteMany({ _id: { $in: validIds } });
 

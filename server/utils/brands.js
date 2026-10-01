@@ -7,6 +7,8 @@ const mongoose = require("mongoose");
 const Brand = require("../models/Brand");
 const Company = require("../models/Company");
 const Review = require("../models/Review");
+// Reviews of the brand as a whole (not of one location)
+const BrandReview = require("../models/BrandReview");
 // Shared domain rules (skips facebook.com and other shared sites)
 const { brandDomainOf } = require("./domains");
 
@@ -30,29 +32,21 @@ function exactTextFilter(value) {
 }
 
 /**
- * Average rating, review count and 1-5 breakdown over the given companies.
+ * Turn "count per star value" rows into { avgRating, reviewCount, ratingBreakdown }.
+ * Accepts rows from several queries at once and adds them together.
  */
-async function ratingStats(companyIds) {
-  // Same empty result shape the company page uses
-  const empty = { avgRating: 0, reviewCount: 0, ratingBreakdown: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 } };
-  // No locations means no reviews
-  if (!companyIds.length) return empty;
-  // One pass: count reviews per star value across all the brand's locations
-  const rows = await Review.aggregate([
-    // Reviews of any of these locations
-    { $match: { company: { $in: companyIds } } },
-    // Count per star value (1..5)
-    { $group: { _id: "$rating", count: { $sum: 1 } } },
-  ]);
+function foldRatingRows(rows) {
   // Start from zeroes so missing star values still appear
-  const breakdown = { ...empty.ratingBreakdown };
+  const breakdown = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
   // Running totals for the average
   let total = 0;
   let sum = 0;
   // Fold each star bucket into the totals
   for (const row of rows) {
-    // Number of reviews with this star value
-    breakdown[row._id] = row.count;
+    // Ignore anything outside 1..5 (old bad data)
+    if (!(row._id in breakdown)) continue;
+    // Number of reviews with this star value (added, since rows can repeat a star)
+    breakdown[row._id] += row.count;
     // Total reviews so far
     total += row.count;
     // Total stars so far
@@ -64,15 +58,47 @@ async function ratingStats(companyIds) {
   return { avgRating, reviewCount: total, ratingBreakdown: breakdown };
 }
 
+// Group stage shared by the rating queries: count reviews per star value
+const COUNT_PER_STAR = { $group: { _id: "$rating", count: { $sum: 1 } } };
+
 /**
- * Everything the brand page header needs: overall rating, number of
- * locations, and the states/cities available for filtering.
+ * Reviews per star value across the given locations, as { _id: stars, count }
+ * rows. The one place location ratings are counted, for company and brand pages.
+ */
+async function locationRatingRows(companyIds) {
+  // No locations means no reviews (skip the query)
+  if (!companyIds.length) return [];
+  // One pass: count reviews per star value across these locations
+  return Review.aggregate([{ $match: { company: { $in: companyIds } } }, COUNT_PER_STAR]);
+}
+
+/**
+ * Average rating, review count and 1-5 breakdown over the given companies.
+ */
+async function ratingStats(companyIds) {
+  // Totals, average and breakdown from the shared query
+  return foldRatingRows(await locationRatingRows(companyIds));
+}
+/**
+ * Everything the brand page header needs: overall rating (reviews of every
+ * location plus reviews of the brand as a whole), how many of those are
+ * brand reviews, number of locations, and the states/cities for filtering.
  */
 async function getBrandSummary(brand) {
   // All locations of this brand, with just the fields we count by
   const locations = await Company.find({ brand: brand._id }).select("_id state city").lean();
-  // Overall rating across every location's reviews
-  const stats = await ratingStats(locations.map((l) => l._id));
+  // Location reviews and whole-brand reviews, counted per star, in parallel
+  const [locationRows, brandRows] = await Promise.all([
+    // Reviews of any of the brand's locations (same query as the company page)
+    locationRatingRows(locations.map((l) => l._id)),
+    // Reviews of the brand itself
+    BrandReview.aggregate([{ $match: { brand: brand._id } }, COUNT_PER_STAR]),
+  ]);
+  // Overall rating: both kinds of review count equally
+  const stats = foldRatingRows([...locationRows, ...brandRows]);
+  // How many of those are about the brand as a whole (same filtering as above,
+  // so it can never exceed reviewCount)
+  const brandReviewCount = foldRatingRows(brandRows).reviewCount;
   // Count locations per state, and the cities seen in each state
   const byState = new Map();
   // Walk every location once
@@ -93,7 +119,7 @@ async function getBrandSummary(brand) {
     .sort((a, b) => b.count - a.count || a.state.localeCompare(b.state))
     .map((s) => ({ state: s.state, count: s.count, cities: [...s.cities].sort() }));
   // Summary for the brand page
-  return { ...stats, locationCount: locations.length, states };
+  return { ...stats, brandReviewCount, locationCount: locations.length, states };
 }
 
 /**
@@ -183,6 +209,7 @@ module.exports = {
   MAX_LOCATIONS_PAGE_SIZE,
   escapeRegex,
   ratingStats,
+  foldRatingRows,
   getBrandSummary,
   listBrandLocations,
   findBrandForDomain,

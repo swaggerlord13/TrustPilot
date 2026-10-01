@@ -7,6 +7,8 @@ const ReviewReply = require("../models/ReviewReply");
 const UserReviewReply = require("../models/UserReviewReply");
 const router = express.Router();
 const { getMixedReviews } = require("../controllers/reviewController");
+// Sort options shared with brand reviews
+const { reviewSortFor } = require("../utils/reviewSort");
 
 /**
  * @route   POST /api/reviews
@@ -92,14 +94,8 @@ router.get("/company/:companyId", async (req, res) => {
   try {
     const { sort = "newest", page = 1, limit = 20 } = req.query;
 
-    // Build sort object
-    const sortOptions = {
-      newest: { createdAt: -1 },
-      oldest: { createdAt: 1 },
-      highest: { rating: -1, createdAt: -1 },
-      lowest: { rating: 1, createdAt: -1 },
-    };
-    const sortBy = sortOptions[sort] || sortOptions.newest;
+    // Shared sort options (unknown values mean newest)
+    const sortBy = reviewSortFor(sort);
 
     // Pagination
     const pageNum = Math.max(1, parseInt(page) || 1);
@@ -345,14 +341,8 @@ router.get("/company/:companyId/with-replies", async (req, res) => {
   try {
     const { sort = "newest", page = 1, limit = 20 } = req.query;
 
-    // Build sort object
-    const sortOptions = {
-      newest: { createdAt: -1 },
-      oldest: { createdAt: 1 },
-      highest: { rating: -1, createdAt: -1 },
-      lowest: { rating: 1, createdAt: -1 },
-    };
-    const sortBy = sortOptions[sort] || sortOptions.newest;
+    // Shared sort options (unknown values mean newest)
+    const sortBy = reviewSortFor(sort);
 
     // Pagination
     const pageNum = Math.max(1, parseInt(page) || 1);

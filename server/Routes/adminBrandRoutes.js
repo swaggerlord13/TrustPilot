@@ -8,6 +8,8 @@
  *   GET    /:id/suggestions          unbranded companies that look like this brand
  *   POST   /:id/locations            attach companies to the brand
  *   DELETE /:id/locations/:companyId detach one company from the brand
+ *   GET    /reviews                  brand reviews, newest first (moderation)
+ *   DELETE /reviews/:reviewId        delete any brand review (moderation)
  */
 const express = require("express");
 const router = express.Router();
@@ -16,6 +18,8 @@ const { admin } = require("../middleware/adminMiddleware");
 const Brand = require("../models/Brand");
 const Company = require("../models/Company");
 const Category = require("../models/Category");
+// Reviews of whole brands, for moderation and clean-up
+const BrandReview = require("../models/BrandReview");
 const { escapeRegex, isValidId } = require("../utils/brands");
 
 // Every route in this file: logged in AND admin
@@ -153,6 +157,53 @@ router.get("/", async (req, res) => {
 });
 
 /**
+ * GET /api/admin/brands/reviews?page=1
+ * Every brand review, newest first, with brand and author, for moderation.
+ * Declared before the "/:id" routes so "reviews" is never read as a brand id.
+ */
+router.get("/reviews", async (req, res) => {
+  try {
+    // Page number, at least 1
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    // Fixed page size for the admin table
+    const limit = 20;
+    // Count and page of reviews in parallel
+    const [total, reviews] = await Promise.all([
+      BrandReview.countDocuments(),
+      BrandReview.find()
+        .populate("brand", "name slug")
+        .populate("user", "name email")
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+    ]);
+    res.json({ reviews, total, page, totalPages: Math.ceil(total / limit) });
+  } catch (err) {
+    console.error("List brand reviews (admin) error:", err.message);
+    res.status(500).json({ error: "Failed to load brand reviews" });
+  }
+});
+
+/**
+ * DELETE /api/admin/brands/reviews/:reviewId
+ * Remove any brand review (spam, abuse).
+ */
+router.delete("/reviews/:reviewId", async (req, res) => {
+  try {
+    // Reject malformed ids before querying
+    if (!isValidId(req.params.reviewId)) return res.status(400).json({ error: "Invalid review ID" });
+    // Delete and report whether it existed
+    const review = await BrandReview.findByIdAndDelete(req.params.reviewId);
+    if (!review) return res.status(404).json({ error: "Review not found" });
+    res.json({ message: "Review deleted" });
+  } catch (err) {
+    console.error("Delete brand review (admin) error:", err.message);
+    res.status(500).json({ error: "Failed to delete review" });
+  }
+});
+
+/**
  * POST /api/admin/brands
  * Body: { name, website?, logo?, description?, category? }
  */
@@ -194,7 +245,8 @@ router.put("/:id", async (req, res) => {
 
 /**
  * DELETE /api/admin/brands/:id
- * Deletes the brand only; its locations stay, just without a brand.
+ * Deletes the brand and its brand-level reviews; its locations (and their
+ * own reviews) stay, just without a brand.
  */
 router.delete("/:id", async (req, res) => {
   try {
@@ -209,9 +261,17 @@ router.delete("/:id", async (req, res) => {
       { brand: req.params.id },
       { $unset: { brand: "", brandSetByAdmin: "" }, $pull: { googleFilledFields: "brand" } }
     );
-    // Then delete the brand itself
+    // Then delete the brand itself. Done before its reviews: if this fails,
+    // the brand and all its reviews are still intact
     await Brand.findByIdAndDelete(req.params.id);
-    res.json({ message: "Brand deleted", locationsDetached: result.modifiedCount });
+    // Reviews of the brand as a whole have nothing to belong to any more.
+    // (A review posted during the delete removes itself, see brandRoutes.)
+    const reviews = await BrandReview.deleteMany({ brand: req.params.id });
+    res.json({
+      message: "Brand deleted",
+      locationsDetached: result.modifiedCount,
+      reviewsDeleted: reviews.deletedCount,
+    });
   } catch (err) {
     console.error("Delete brand error:", err.message);
     res.status(500).json({ error: "Failed to delete brand" });
