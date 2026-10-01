@@ -1,10 +1,14 @@
 // routes/subcategories.js
 const express = require("express");
 const { protect } = require("../middleware/authMiddleware");
+// Delete records together with everything that belongs to them
+const { deleteCompaniesCascade } = require("../utils/cascade");
 const { admin } = require("../middleware/adminMiddleware");
 const Category = require("../models/Category"); // <-- add this
 const SubCategory = require("../models/Subcategory");
 const Company = require("../models/Company"); // needed for cascade delete
+// Logs unexpected errors and answers without leaking internal details
+const { sendServerError } = require("../utils/http");
 
 const router = express.Router();
 
@@ -26,7 +30,7 @@ router.post("/", protect, admin, async (req, res) => {
 
     res.status(201).json(subcategory);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -43,7 +47,7 @@ router.get("/", async (req, res) => {
     const subcategories = await SubCategory.find(filter).populate("category");
     res.json(subcategories);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -68,7 +72,7 @@ router.put("/:subCategoryId/move", protect, admin, async (req, res) => {
 
     res.json(subcategory);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -82,7 +86,9 @@ router.delete("/:id", protect, admin, async (req, res) => {
     }
 
     // Delete companies linked to this subcategory
-    await Company.deleteMany({ subcategory: subcategory._id });
+    // ...with their reviews (and replies) and business claims
+    const companyIds = await Company.distinct("_id", { subcategory: subcategory._id });
+    await deleteCompaniesCascade(companyIds);
 
     // Delete the subcategory itself
     await SubCategory.findByIdAndDelete(req.params.id);
@@ -91,7 +97,7 @@ router.delete("/:id", protect, admin, async (req, res) => {
       message: "Subcategory and related companies deleted successfully",
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 // ===============================
@@ -118,7 +124,7 @@ router.get("/:categorySlug/:subSlug", async (req, res) => {
 
     res.json(companies);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 

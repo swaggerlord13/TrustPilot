@@ -18,7 +18,8 @@ async function promote() {
     await mongoose.connect(process.env.MONGO_URI);
     console.log("Connected to MongoDB");
 
-    const user = await User.findOne({ email });
+    // Any capitalisation of the email
+    const user = await User.findByEmail(email);
     if (!user) {
       console.log(`❌ No user found with email: ${email}`);
       process.exit(1);

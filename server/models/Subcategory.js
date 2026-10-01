@@ -21,9 +21,10 @@ const subcategorySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Before saving, generate slug
+// Slug is made once, when the subcategory is created. Renaming keeps it, so
+// existing links keep working (same rule as categories and brands)
 subcategorySchema.pre("save", function (next) {
-  this.slug = slugify(this.name, { lower: true, strict: true });
+  if (this.isNew || !this.slug) this.slug = slugify(this.name, { lower: true, strict: true });
   next();
 });
 

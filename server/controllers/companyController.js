@@ -7,7 +7,11 @@ const Review = require("../models/Review");
 const { ratingStats, escapeRegex } = require("../utils/brands");
 // Plain-text query values only
 const { asText } = require("../utils/input");
+// Delete records together with everything that belongs to them
+const { deleteCompaniesCascade } = require("../utils/cascade");
 const AFRICAN_CITIES = require("../data/africanCities");
+// Logs unexpected errors and answers without leaking internal details
+const { sendServerError } = require("../utils/http");
 
 // ... keep all your existing functions ...
 
@@ -34,7 +38,7 @@ exports.getCompanyWithRatings = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching company with ratings:", error);
-    res.status(500).json({ message: "Server Error: " + error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -208,7 +212,7 @@ exports.getBestCompaniesByCategory = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching random categories:", error);
-    res.status(500).json({ message: "Server Error: " + error.message });
+    sendServerError(res, error);
   }
 };
 // @desc    Get companies
@@ -229,7 +233,7 @@ exports.getCompanies = async (req, res) => {
 
     res.json(companies);
   } catch (error) {
-    res.status(500).json({ message: "Server Error: " + error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -330,7 +334,7 @@ exports.createCompany = async (req, res) => {
         message: "A company with this name already exists in this city and country.",
       });
     }
-    res.status(400).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -386,7 +390,7 @@ exports.updateCompany = async (req, res) => {
         message: "A company with this name already exists in this city and country.",
       });
     }
-    res.status(400).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -394,13 +398,15 @@ exports.updateCompany = async (req, res) => {
 // @route   DELETE /api/companies/:id
 exports.deleteCompany = async (req, res) => {
   try {
-    const company = await Company.findByIdAndDelete(req.params.id);
-    if (!company) {
+    // Valid id and existing company, before deleting anything
+    if (!mongoose.Types.ObjectId.isValid(req.params.id) || !(await Company.exists({ _id: req.params.id }))) {
       return res.status(404).json({ message: "Company not found" });
     }
+    // The company, its reviews (with replies) and its business claims
+    await deleteCompaniesCascade([req.params.id]);
     res.json({ message: "Company deleted successfully" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -415,7 +421,7 @@ exports.getCompaniesByCategory = async (req, res) => {
 
     res.json(companies);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 };
 
@@ -429,7 +435,7 @@ exports.getCompaniesBySubcategory = async (req, res) => {
 
     res.json(companies);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 };
 
@@ -527,7 +533,7 @@ exports.getLatestBestReviews = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching latest best reviews:", error);
-    res.status(500).json({ message: "Server Error: " + error.message });
+    sendServerError(res, error);
   }
 };
 // Get random reviews for a specific company
@@ -570,7 +576,7 @@ exports.getRandomCompanyReviews = async (req, res) => {
 
     res.json(reviews);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 // Get smartly selected reviews for display on company page
@@ -663,7 +669,7 @@ exports.getCompanyReviewsForDisplay = async (req, res) => {
     res.json(populatedReviews);
   } catch (error) {
     console.error("Error fetching company display reviews:", error);
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -899,7 +905,7 @@ exports.searchCompanies = async (req, res) => {
     });
   } catch (error) {
     console.error("Error searching companies:", error);
-    res.status(500).json({ message: "Server Error: " + error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -944,6 +950,6 @@ exports.getCompanyLocations = async (req, res) => {
       countryToCities,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };

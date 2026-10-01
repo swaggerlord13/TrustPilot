@@ -29,6 +29,8 @@ const SubCategory = require("../models/Subcategory");
 // Stats endpoint for homepage animated counters
 const Review = require("../models/Review");
 const User = require("../models/User");
+// Logs unexpected errors and answers without leaking internal details
+const { sendServerError } = require("../utils/http");
 
 router.get("/stats", async (req, res) => {
   try {
@@ -98,7 +100,7 @@ router.get("/category/slug/:slug", async (req, res) => {
     const companies = await Company.find({ subcategory: { $in: subIds } });
     res.json(companies);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -112,7 +114,7 @@ router.get("/subcategory/slug/:slug", async (req, res) => {
     const companies = await Company.find({ subcategory: subcategory._id });
     res.json(companies);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -129,7 +131,7 @@ router.get("/slug/:slug", async (req, res) => {
 
     res.json(company);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -145,7 +147,7 @@ router.get("/by-id/:id", async (req, res) => {
 
     res.json(company);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 

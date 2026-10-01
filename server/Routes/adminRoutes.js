@@ -17,6 +17,12 @@ const BrandReview = require("../models/BrandReview");
 const Category = require("../models/Category");
 const SubCategory = require("../models/Subcategory");
 const ReviewReply = require("../models/ReviewReply");
+// Delete records together with everything that belongs to them
+const { deleteReviewsWhere, deleteCompaniesCascade } = require("../utils/cascade");
+// Business claims (deleted with their user)
+const CompanyClaim = require("../models/CompanyClaim");
+// Logs unexpected errors and answers without leaking internal details
+const { sendServerError } = require("../utils/http");
 
 // Apply auth + admin to ALL routes in this file
 router.use(protect, admin);
@@ -68,7 +74,7 @@ router.get("/stats", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin stats error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -114,7 +120,7 @@ router.get("/users", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin get users error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -138,7 +144,7 @@ router.put("/users/:id/toggle-admin", async (req, res) => {
     res.json({ message: `User ${user.isAdmin ? "promoted to" : "removed from"} admin`, user });
   } catch (err) {
     console.error("Toggle admin error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -165,8 +171,11 @@ router.delete("/users/bulk", async (req, res) => {
       return res.status(400).json({ error: "You cannot delete your own account" });
     }
 
-    // Delete users' reviews first
-    await Review.deleteMany({ user: { $in: validIds } });
+    // Delete users' reviews first (with the replies to them)
+    await deleteReviewsWhere({ user: { $in: validIds } });
+    // Replies they wrote for a business they ran, and their business claims
+    await ReviewReply.deleteMany({ user: { $in: validIds } });
+    await CompanyClaim.deleteMany({ user: { $in: validIds } });
     // ...and their reviews of whole brands
     await BrandReview.deleteMany({ user: { $in: validIds } });
     // Delete the users
@@ -175,7 +184,7 @@ router.delete("/users/bulk", async (req, res) => {
     res.json({ message: `${result.deletedCount} user(s) deleted`, deletedCount: result.deletedCount });
   } catch (err) {
     console.error("Bulk delete users error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -229,7 +238,7 @@ router.get("/companies", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin get companies error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -259,7 +268,7 @@ router.put("/companies/:id", async (req, res) => {
     res.json(updated);
   } catch (err) {
     console.error("Admin update company error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -280,15 +289,13 @@ router.delete("/companies/bulk", async (req, res) => {
       return res.status(400).json({ error: "One or more invalid company IDs" });
     }
 
-    // Delete reviews for these companies
-    await Review.deleteMany({ company: { $in: validIds } });
-    // Delete the companies
-    const result = await Company.deleteMany({ _id: { $in: validIds } });
+    // The companies with their reviews (and replies) and business claims
+    const deletedCount = await deleteCompaniesCascade(validIds);
 
-    res.json({ message: `${result.deletedCount} company(ies) deleted`, deletedCount: result.deletedCount });
+    res.json({ message: `${deletedCount} company(ies) deleted`, deletedCount });
   } catch (err) {
     console.error("Bulk delete companies error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -353,7 +360,7 @@ router.get("/reviews", async (req, res) => {
     });
   } catch (err) {
     console.error("Admin get reviews error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -374,15 +381,13 @@ router.delete("/reviews/bulk", async (req, res) => {
       return res.status(400).json({ error: "One or more invalid review IDs" });
     }
 
-    // Delete any replies to these reviews
-    await ReviewReply.deleteMany({ review: { $in: validIds } });
-    // Delete the reviews
-    const result = await Review.deleteMany({ _id: { $in: validIds } });
+    // The reviews and every reply to them
+    const deletedCount = await deleteReviewsWhere({ _id: { $in: validIds } });
 
-    res.json({ message: `${result.deletedCount} review(s) deleted`, deletedCount: result.deletedCount });
+    res.json({ message: `${deletedCount} review(s) deleted`, deletedCount });
   } catch (err) {
     console.error("Bulk delete reviews error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -395,13 +400,13 @@ router.delete("/reviews/:id", async (req, res) => {
     const review = await Review.findById(req.params.id);
     if (!review) return res.status(404).json({ error: "Review not found" });
 
-    await ReviewReply.deleteMany({ review: review._id });
-    await Review.findByIdAndDelete(req.params.id);
+    // The review and every reply to it
+    await deleteReviewsWhere({ _id: review._id });
 
     res.json({ message: "Review deleted" });
   } catch (err) {
     console.error("Admin delete review error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -448,7 +453,7 @@ router.get("/categories", async (req, res) => {
     res.json(enriched);
   } catch (err) {
     console.error("Admin get categories error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -472,7 +477,7 @@ router.put("/categories/:id", async (req, res) => {
     res.json(category);
   } catch (err) {
     console.error("Admin update category error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -496,7 +501,7 @@ router.put("/subcategories/:id", async (req, res) => {
     res.json(subcategory);
   } catch (err) {
     console.error("Admin update subcategory error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 

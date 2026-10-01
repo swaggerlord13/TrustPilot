@@ -5,6 +5,8 @@ const { asText } = require("../utils/input");
 // Add this to your reviewRoutes.js or create a new controller
 
 const Review = require("../models/Review");
+// Logs unexpected errors and answers without leaking internal details
+const { sendServerError } = require("../utils/http");
 
 /**
  * @route   GET /api/reviews/browse-mixed
@@ -174,6 +176,6 @@ exports.getMixedReviews = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching mixed reviews:", error);
-    res.status(500).json({ message: "Server Error: " + error.message });
+    sendServerError(res, error);
   }
 };

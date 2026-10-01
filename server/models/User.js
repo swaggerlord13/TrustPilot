@@ -5,7 +5,8 @@ const crypto = require("crypto");
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
+    // Saved trimmed and lower-case, so "Femi@X.com" and "femi@x.com" are one account
+    email: { type: String, required: true, unique: true, trim: true, lowercase: true },
     // Password is optional — social-auth users won't have one
     password: { type: String },
     profileImage: {
@@ -23,7 +24,7 @@ const userSchema = new mongoose.Schema(
     },
     // New address waiting for its verification link to be clicked; the
     // current email keeps working until then (so a typo can't lock anyone out)
-    pendingEmail: { type: String },
+    pendingEmail: { type: String, trim: true, lowercase: true },
     emailVerificationToken: String,
     emailVerificationExpire: Date,
     // Social auth provider IDs
@@ -89,6 +90,33 @@ userSchema.methods.getEmailVerificationToken = function () {
 
   // Return the un-hashed token (sent via email)
   return verifyToken;
+};
+
+// Case-insensitive comparison (strength 2 = letters only, ignore case)
+const EMAIL_COLLATION = { locale: "en", strength: 2 };
+
+/**
+ * The account using this email, or null. Tries, in order:
+ *   1. exactly as typed (fast, indexed). Mongoose would lower-case the value,
+ *      so this reads the collection directly. It finds a person's own account
+ *      even when an older account differs only in capital letters.
+ *   2. lower-cased (fast, indexed): every account saved from now on.
+ *   3. ignoring case (slower scan): older mixed-case accounts. Only runs when
+ *      1 and 2 miss, and finds nothing new once scripts/normalizeEmails.js ran.
+ * Pass `exceptId` to ignore one account (e.g. "is it used by someone else?").
+ */
+userSchema.statics.findByEmail = async function (email, exceptId) {
+  const typed = String(email ?? "").trim();
+  if (!typed) return null;
+  const notThis = exceptId ? { _id: { $ne: new mongoose.Types.ObjectId(String(exceptId)) } } : {};
+  // 1. As typed, straight from the collection, turned into a normal document
+  const raw = await this.collection.findOne({ email: typed, ...notThis });
+  if (raw) return this.hydrate(raw);
+  // 2. Lower-case (the model lower-cases the filter itself)
+  const lower = await this.findOne({ email: typed, ...notThis });
+  if (lower) return lower;
+  // 3. Any capitalisation
+  return this.findOne({ email: typed, ...notThis }).collation(EMAIL_COLLATION);
 };
 
 module.exports = mongoose.model("User", userSchema);

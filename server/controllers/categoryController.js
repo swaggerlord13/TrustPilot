@@ -1,43 +1,11 @@
 const Category = require("../models/Category");
-
-// @desc    Get all categories
-// @route   GET /api/categories
-// @access  Public (frontend will call this to list categories)
-exports.getCategories = async (req, res) => {
-  try {
-    const categories = await Category.find();
-    res.json(categories);
-  } catch (error) {
-    res.status(500).json({ message: "Server Error: " + error.message });
-  }
-};
-
-// @desc    Create a new category (Admin only later)
-// @route   POST /api/categories
-exports.createCategory = async (req, res) => {
-  try {
-    const category = new Category({ name: req.body.name });
-    await category.save();
-    res.status(201).json(category);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
-};
-exports.deleteCategory = async (req, res) => {
-  try {
-    const category = await Category.findByIdAndDelete(req.params.id);
-    if (!category) {
-      return res.status(404).json({ message: "Category not found" });
-    }
-    res.json({ message: "Category deleted successfully" });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// Add this to categoryController.js
-
 const Review = require("../models/Review");
+// Logs unexpected errors and answers without leaking internal details
+const { sendServerError } = require("../utils/http");
+
+// Only the paginated category page lives here. Listing, creating, editing
+// and deleting categories are handled in Routes/categoryRoutes.js (the delete
+// there also removes the category's companies, reviews and claims).
 
 exports.getCategoryCompaniesWithPagination = async (req, res) => {
   try {
@@ -198,6 +166,6 @@ exports.getCategoryCompaniesWithPagination = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching paginated companies:", error);
-    res.status(500).json({ message: "Server Error: " + error.message });
+    sendServerError(res, error);
   }
 };

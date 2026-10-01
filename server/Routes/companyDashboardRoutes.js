@@ -5,6 +5,10 @@ const Company = require("../models/Company");
 const Review = require("../models/Review");
 const ReviewReply = require("../models/ReviewReply");
 const { protect } = require("../middleware/authMiddleware");
+// Safe http(s) links for website/logo
+const { normalizeHttpUrl } = require("../utils/input");
+// Logs unexpected errors and answers without leaking internal details
+const { sendServerError } = require("../utils/http");
 const router = express.Router();
 
 /**
@@ -41,7 +45,7 @@ const requireCompanyAccess = async (req, res, next) => {
     req.company = company;
     next();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 };
 
@@ -106,7 +110,7 @@ router.get("/:companyId/stats", protect, requireCompanyAccess, async (req, res) 
     });
   } catch (err) {
     console.error("Stats error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -178,7 +182,7 @@ router.get("/:companyId/reviews", protect, requireCompanyAccess, async (req, res
     });
   } catch (err) {
     console.error("Dashboard reviews error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
@@ -250,7 +254,7 @@ router.post(
           .json({ error: "You have already replied to this review" });
       }
       console.error("Reply error:", err);
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err);
     }
   }
 );
@@ -293,7 +297,7 @@ router.put(
       });
     } catch (err) {
       console.error("Edit reply error:", err);
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err);
     }
   }
 );
@@ -320,7 +324,7 @@ router.delete(
       res.json({ message: "Reply deleted" });
     } catch (err) {
       console.error("Delete reply error:", err);
-      res.status(500).json({ error: err.message });
+      sendServerError(res, err);
     }
   }
 );
@@ -331,13 +335,30 @@ router.delete(
  */
 router.put("/:companyId/profile", protect, requireCompanyAccess, async (req, res) => {
   try {
-    const { description, url, logo } = req.body;
+    const { description, url, logo } = req.body || {};
     const company = req.company;
 
     // Only update allowed fields (not name/slug — those need admin approval)
-    if (description !== undefined) company.description = description;
-    if (url !== undefined) company.url = url;
-    if (logo !== undefined) company.logo = logo;
+    if (description !== undefined) {
+      // Plain text, capped like brand descriptions
+      if (typeof description !== "string" || description.trim().length > 2000) {
+        return res.status(400).json({ error: "Description must be text of up to 2000 characters" });
+      }
+      company.description = description.trim();
+    }
+    // Website and logo must be web links ("javascript:" etc. are refused).
+    // Unchanged values are skipped, so an old value saved before these checks
+    // existed never blocks editing the description.
+    if (url !== undefined && url !== company.url) {
+      const safeUrl = normalizeHttpUrl(url);
+      if (safeUrl === null) return res.status(400).json({ error: "Website must be a valid http(s) link" });
+      company.url = safeUrl;
+    }
+    if (logo !== undefined && logo !== company.logo) {
+      const safeLogo = normalizeHttpUrl(logo);
+      if (safeLogo === null) return res.status(400).json({ error: "Logo must be a valid http(s) link" });
+      company.logo = safeLogo;
+    }
 
     await company.save();
 
@@ -354,7 +375,7 @@ router.put("/:companyId/profile", protect, requireCompanyAccess, async (req, res
     });
   } catch (err) {
     console.error("Profile update error:", err);
-    res.status(500).json({ error: err.message });
+    sendServerError(res, err);
   }
 });
 
