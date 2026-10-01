@@ -142,14 +142,24 @@ const REVIEWS_CACHE_MAX_ENTRIES = 1000;
 const reviewsCache = new Map(); // placeId -> { expiresAt, value?, error? }
 const inFlight = new Map(); // placeId -> Promise
 
+// Only show Google reviews from the last 2 years (older ones are hidden)
+const MAX_REVIEW_AGE_MS = 2 * 365 * 24 * 60 * 60 * 1000;
+
+function isRecentReview(review, now = Date.now()) {
+  const published = Date.parse(review.publishTime);
+  // No date means we can't tell how old it is, so treat it as old
+  return Number.isFinite(published) && now - published <= MAX_REVIEW_AGE_MS;
+}
+
 function formatReviews(place) {
   return {
     rating: place.rating ?? null,
     userRatingCount: place.userRatingCount ?? 0,
     googleMapsUri: place.googleMapsUri || "",
     // Google picks the 5 "most relevant" reviews and Places API (New) has no
-    // sort option, so show the newest of those first
-    reviews: [...(place.reviews || [])]
+    // sort option, so drop ones older than 2 years and show the newest first
+    reviews: (place.reviews || [])
+      .filter((review) => isRecentReview(review))
       .sort((a, b) => (Date.parse(b.publishTime) || 0) - (Date.parse(a.publishTime) || 0))
       .map((review) => ({
         authorName: review.authorAttribution?.displayName || "Google user",
