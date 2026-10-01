@@ -121,6 +121,19 @@ function button(text, href) {
 // ─── Individual email templates ───────────────────────────────
 
 /**
+ * Make user-typed text (like a name) safe inside an email's HTML: tags and
+ * quotes become plain characters, so a "name" can't turn into a link or button.
+ */
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
  * Password reset email
  */
 function passwordReset({ userName, resetUrl }) {
@@ -133,7 +146,7 @@ function passwordReset({ userName, resetUrl }) {
     </p>
 
     <p style="margin:0 0 6px 0; font-size:15px; color:${BRAND.textColor}; line-height:1.6;">
-      Hi ${userName},
+      Hi ${escapeHtml(userName)},
     </p>
     <p style="margin:0 0 4px 0; font-size:15px; color:${BRAND.textColor}; line-height:1.6;">
       Someone requested a password reset for your Trustpilotafrica account. Click the button below to choose a new password.
@@ -166,7 +179,7 @@ function emailVerification({ userName, verifyUrl }) {
     </p>
 
     <p style="margin:0 0 6px 0; font-size:15px; color:${BRAND.textColor}; line-height:1.6;">
-      Hi ${userName},
+      Hi ${escapeHtml(userName)},
     </p>
     <p style="margin:0 0 4px 0; font-size:15px; color:${BRAND.textColor}; line-height:1.6;">
       Welcome to Trustpilotafrica! To start leaving reviews and exploring trusted companies across Africa, please verify your email address.
@@ -199,7 +212,7 @@ function welcomeEmail({ userName }) {
     </p>
 
     <p style="margin:0 0 6px 0; font-size:15px; color:${BRAND.textColor}; line-height:1.6;">
-      Hi ${userName},
+      Hi ${escapeHtml(userName)},
     </p>
     <p style="margin:0 0 16px 0; font-size:15px; color:${BRAND.textColor}; line-height:1.6;">
       Your account is now fully active. Here's what you can do:

@@ -15,7 +15,8 @@ const { getBrandSummary, listBrandLocations, isValidId } = require("../utils/bra
 // Reviews of the brand as a whole
 const BrandReview = require("../models/BrandReview");
 // Login check for writing/editing/deleting reviews
-const { protect } = require("../middleware/authMiddleware");
+// requireVerified: only verified emails may post reviews
+const { protect, requireVerified } = require("../middleware/authMiddleware");
 
 // Sort options shared with location reviews
 const { reviewSortFor } = require("../utils/reviewSort");
@@ -191,7 +192,7 @@ router.get("/:slug/reviews/mine", protect, async (req, res) => {
  * POST /api/brands/:slug/reviews
  * Body: { rating, comment, title? }. One review per user per brand.
  */
-router.post("/:slug/reviews", protect, async (req, res) => {
+router.post("/:slug/reviews", protect, requireVerified, async (req, res) => {
   try {
     // Brand by slug (id only), or stop after the 404
     const brand = await findBrandBySlugOr404(req, res, { idOnly: true });
@@ -254,7 +255,7 @@ async function findOwnReviewOrError(req, res) {
  * PUT /api/brands/:slug/reviews/:reviewId
  * Body: any of { rating, comment, title }. Author only.
  */
-router.put("/:slug/reviews/:reviewId", protect, async (req, res) => {
+router.put("/:slug/reviews/:reviewId", protect, requireVerified, async (req, res) => {
   try {
     // The user's own review, or stop after the error response
     const review = await findOwnReviewOrError(req, res);

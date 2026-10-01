@@ -4,7 +4,9 @@ const Category = require("../models/Category");
 const SubCategory = require("../models/Subcategory");
 const Review = require("../models/Review");
 // Shared rating maths, also used for brand pages
-const { ratingStats } = require("../utils/brands");
+const { ratingStats, escapeRegex } = require("../utils/brands");
+// Plain-text query values only
+const { asText } = require("../utils/input");
 const AFRICAN_CITIES = require("../data/africanCities");
 
 // ... keep all your existing functions ...
@@ -668,18 +670,19 @@ exports.getCompanyReviewsForDisplay = async (req, res) => {
 // Search companies with filters (for Browse Companies page)
 exports.searchCompanies = async (req, res) => {
   try {
-    const {
-      q = "",
-      city,
-      country,
-      category,
-      minRating,
-      sort = "relevance",
-      page = 1,
-      limit = 20,
-    } = req.query;
+    // Query values must be plain text (?q[]=x or ?q[$ne]= become ""), max 100 chars
+    const text = (v) => asText(v, 100);
+    const q = text(req.query.q);
+    const city = text(req.query.city);
+    const country = text(req.query.country);
+    const category = text(req.query.category);
+    const minRating = text(req.query.minRating);
+    const sort = text(req.query.sort) || "relevance";
+    // Page >= 1 and 1..50 results per page, so one request can't ask for everything
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const skip = (page - 1) * limit;
 
     // ──────────────────────────────────────────────
     // Smart query parsing: detect location words in the search text
@@ -711,7 +714,7 @@ exports.searchCompanies = async (req, res) => {
         if (cleanedQuery.includes(c.toLowerCase())) {
           detectedCountry = c;
           // Remove the country name from the keyword part
-          keywordPart = keywordPart.replace(new RegExp(c, "i"), "").replace(/\b(in|at|near|from|around)\b/gi, " ").replace(/\s+/g, " ").trim();
+          keywordPart = keywordPart.replace(new RegExp(escapeRegex(c), "i"), "").replace(/\b(in|at|near|from|around)\b/gi, " ").replace(/\s+/g, " ").trim();
           break;
         }
       }
@@ -721,7 +724,7 @@ exports.searchCompanies = async (req, res) => {
         if (cleanedQuery.includes(c.toLowerCase())) {
           detectedCity = c;
           // Remove the city name from the keyword part
-          keywordPart = keywordPart.replace(new RegExp(c, "i"), "").replace(/\b(in|at|near|from|around)\b/gi, " ").replace(/\s+/g, " ").trim();
+          keywordPart = keywordPart.replace(new RegExp(escapeRegex(c), "i"), "").replace(/\b(in|at|near|from|around)\b/gi, " ").replace(/\s+/g, " ").trim();
           break;
         }
       }
@@ -730,7 +733,8 @@ exports.searchCompanies = async (req, res) => {
     // Use explicit filter params first, fall back to detected values from query
     const effectiveCity = city || detectedCity;
     const effectiveCountry = country || detectedCountry;
-    const searchRegex = keywordPart ? new RegExp(keywordPart, "i") : null;
+    // User text is matched literally: "(" or "(a+)+$" can't crash or stall the database
+    const searchRegex = keywordPart ? new RegExp(escapeRegex(keywordPart), "i") : null;
 
     // Step 1: Build the company match filter
     const companyMatch = {};
@@ -741,15 +745,15 @@ exports.searchCompanies = async (req, res) => {
         { description: searchRegex },
       ];
     }
-    if (effectiveCity) companyMatch.city = new RegExp(effectiveCity, "i");
-    if (effectiveCountry) companyMatch.country = new RegExp(effectiveCountry, "i");
+    if (effectiveCity) companyMatch.city = new RegExp(escapeRegex(effectiveCity), "i");
+    if (effectiveCountry) companyMatch.country = new RegExp(escapeRegex(effectiveCountry), "i");
 
     // Step 2: If category filter is set, find the category ID
     if (category) {
       const cat = await Category.findOne({
         $or: [
           { slug: category },
-          { name: new RegExp(category, "i") },
+          { name: new RegExp(escapeRegex(category), "i") },
         ],
       });
       if (cat) companyMatch.category = cat._id;
@@ -837,7 +841,7 @@ exports.searchCompanies = async (req, res) => {
     // Step 5: Filter by minimum rating if set
     if (minRating) {
       pipeline.push({
-        $match: { avgRating: { $gte: parseFloat(minRating) } },
+        $match: { avgRating: { $gte: Number.parseFloat(minRating) || 0 } },
       });
     }
 
@@ -862,7 +866,7 @@ exports.searchCompanies = async (req, res) => {
 
     // Step 7: Paginate and project
     pipeline.push({ $skip: skip });
-    pipeline.push({ $limit: parseInt(limit) });
+    pipeline.push({ $limit: limit });
     pipeline.push({
       $project: {
         _id: 1,
@@ -888,9 +892,9 @@ exports.searchCompanies = async (req, res) => {
       companies,
       pagination: {
         total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / parseInt(limit)),
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
       },
     });
   } catch (error) {

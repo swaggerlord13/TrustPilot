@@ -1,8 +1,12 @@
 const express = require("express");
-const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const { OAuth2Client } = require("google-auth-library");
 const User = require("../models/User");
+const Company = require("../models/Company");
+// Business claims (created at business sign-up, cleared on account recovery)
+const CompanyClaim = require("../models/CompanyClaim");
+// ObjectId check for claimCompanyId
+const mongoose = require("mongoose");
 const { protect } = require("../middleware/authMiddleware");
 const sendEmail = require("../utils/sendEmail");
 const emailTemplates = require("../utils/emailTemplates");
@@ -13,10 +17,13 @@ const router = express.Router();
 // Other social tokens are verified with native fetch (Node 18+).
 const googleClient = new OAuth2Client();
 
-// Helper to generate JWT
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "30d" });
-};
+// Login tokens carry the user's tokenVersion so they can be revoked (utils/token.js)
+const { generateToken } = require("../utils/token");
+
+// Plain-text request values only (objects like {"$ne": null} become "")
+const { asText, asPassword, isValidEmail } = require("../utils/input");
+// Exact, case-insensitive name match with regex characters escaped
+const { exactTextFilter } = require("../utils/brands");
 
 // Helper to get the frontend URL (used in email links)
 const getClientUrl = () => {
@@ -34,14 +41,35 @@ const hasNoRealProfileImage = (user) => {
  */
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, profileImage } = req.body;
+    // Plain-text values only (see asText)
+    const name = asText(req.body.name);
+    const email = asText(req.body.email);
+    const password = asPassword(req.body.password);
+    const profileImage = asText(req.body.profileImage);
+
+    // Basic checks before touching the database
+    if (!name || name.length > 100) {
+      return res.status(400).json({ error: "Please enter your name (up to 100 characters)" });
+    }
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: "Please enter a valid email address" });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters long" });
+    }
 
     const userExists = await User.findOne({ email });
     if (userExists) {
       return res.status(400).json({ error: "Email already registered" });
     }
 
-    const user = await User.create({ name, email, password, profileImage });
+    // Only a web image link is kept as the profile picture
+    const user = await User.create({
+      name,
+      email,
+      password,
+      profileImage: /^https?:\/\//i.test(profileImage) ? profileImage : "",
+    });
 
     // Generate email verification token
     const verifyToken = user.getEmailVerificationToken();
@@ -72,7 +100,7 @@ router.post("/register", async (req, res) => {
       profileImage: user.profileImage,
       isAdmin: user.isAdmin,
       isEmailVerified: false,
-      token: generateToken(user._id),
+      token: generateToken(user),
       message: "Account created! Please check your email to verify your account.",
     });
   } catch (err) {
@@ -85,11 +113,22 @@ router.post("/register", async (req, res) => {
  */
 router.post("/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    // Plain-text values only (see asText)
+    const email = asText(req.body.email);
+    const password = asPassword(req.body.password);
+    if (!email || !password)
+      return res.status(401).json({ error: "Invalid email or password" });
 
     const user = await User.findOne({ email });
     if (!user)
       return res.status(401).json({ error: "Invalid email or password" });
+
+    // Account without a password (made with, or taken back through, Google)
+    if (!user.password) {
+      return res.status(401).json({
+        error: "This account signs in with Google. Use \"Continue with Google\", or \"Forgot password\" to set a password.",
+      });
+    }
 
     const isMatch = await user.matchPassword(password);
     if (!isMatch)
@@ -111,7 +150,7 @@ router.post("/login", async (req, res) => {
       profileImage: user.profileImage,
       isAdmin: user.isAdmin,
       isEmailVerified: user.isEmailVerified,
-      token: generateToken(user._id),
+      token: generateToken(user),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -139,6 +178,19 @@ router.get("/verify-email/:token", async (req, res) => {
       return res
         .status(400)
         .json({ error: "Invalid or expired verification link. Please request a new one." });
+    }
+
+    // Link for a changed address: switch to it now, if nobody took it meanwhile
+    if (user.pendingEmail) {
+      if (await User.exists({ email: user.pendingEmail, _id: { $ne: user._id } })) {
+        user.pendingEmail = undefined;
+        user.emailVerificationToken = undefined;
+        user.emailVerificationExpire = undefined;
+        await user.save({ validateBeforeSave: false });
+        return res.status(400).json({ error: "That email address is now used by another account." });
+      }
+      user.email = user.pendingEmail;
+      user.pendingEmail = undefined;
     }
 
     // Mark email as verified and clear the token
@@ -174,9 +226,10 @@ router.get("/verify-email/:token", async (req, res) => {
  */
 router.post("/resend-verification", async (req, res) => {
   try {
-    const { email } = req.body;
+    // Plain-text email only (see asText)
+    const email = asText(req.body.email);
 
-    const user = await User.findOne({ email });
+    const user = email ? await User.findOne({ email }) : null;
 
     // Don't reveal whether the email exists
     if (!user || user.isEmailVerified) {
@@ -238,20 +291,92 @@ router.get("/me", protect, async (req, res) => {
  */
 router.put("/me", protect, async (req, res) => {
   try {
+    // Full account, including the password hash (protect leaves it out)
     const user = await User.findById(req.user._id);
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
 
-    user.name = req.body.name || user.name;
-    user.email = req.body.email || user.email;
-    user.profileImage = req.body.profileImage || user.profileImage;
+    // Name: optional, plain text, up to 100 characters
+    if (req.body.name !== undefined) {
+      const name = asText(req.body.name);
+      if (!name || name.length > 100) {
+        return res.status(400).json({ error: "Name must be 1 to 100 characters" });
+      }
+      user.name = name;
+    }
 
-    if (req.body.password) {
-      user.password = req.body.password;
+    // Profile picture: a web image link, or "" to remove it
+    if (req.body.profileImage !== undefined) {
+      const profileImage = asText(req.body.profileImage);
+      if (profileImage && !/^https?:\/\//i.test(profileImage)) {
+        return res.status(400).json({ error: "Profile image must be a web link" });
+      }
+      user.profileImage = profileImage;
+    }
+
+    // Changing the email or password needs the current password, so a stolen
+    // login token alone can't take the account over
+    const newEmail = asText(req.body.email);
+    const emailChanged = Boolean(newEmail) && newEmail.toLowerCase() !== user.email.toLowerCase();
+    const newPassword = asPassword(req.body.password);
+    if (emailChanged || newPassword) {
+      // Accounts made with Google have no password: they set one by email instead
+      if (!user.password) {
+        return res.status(400).json({
+          error: "Your account has no password yet. Use \"Forgot password\" on the login page to set one first.",
+        });
+      }
+      const currentPassword = asPassword(req.body.currentPassword);
+      // 400, not 401: the login itself is fine, so the site must not log the user out
+      if (!currentPassword || !(await user.matchPassword(currentPassword))) {
+        return res.status(400).json({ error: "Your current password is incorrect", field: "currentPassword" });
+      }
+    }
+
+    // New email: must be valid and free. It only replaces the current one
+    // after its verification link is clicked, so a typo can't lock anyone out
+    let verifyToken = null;
+    if (emailChanged) {
+      if (!isValidEmail(newEmail)) {
+        return res.status(400).json({ error: "Please enter a valid email address" });
+      }
+      if (await User.exists({ email: newEmail, _id: { $ne: user._id } })) {
+        return res.status(400).json({ error: "That email is already used by another account" });
+      }
+      user.pendingEmail = newEmail;
+      // Link to prove the new address belongs to this user
+      verifyToken = user.getEmailVerificationToken();
+    }
+
+    // New password: same rule as sign-up, and sign out every other device
+    if (newPassword) {
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: "New password must be at least 8 characters" });
+      }
+      user.password = newPassword;
+      user.tokenVersion = (user.tokenVersion || 0) + 1;
     }
 
     const updatedUser = await user.save();
+
+    // Send the verification link for a new email (failure is logged, not fatal:
+    // they can ask for a new link from the login page)
+    if (verifyToken) {
+      try {
+        await sendEmail({
+          // Sent to the NEW address: clicking it proves the user owns it
+          email: updatedUser.pendingEmail,
+          subject: "Trustpilotafrica - Verify Your Email",
+          html: emailTemplates.emailVerification({
+            userName: updatedUser.name,
+            verifyUrl: `${getClientUrl()}/verify-email/${verifyToken}`,
+          }),
+        });
+      } catch (emailErr) {
+        console.error("Email-change verification send error:", emailErr.message);
+      }
+    }
 
     res.json({
       _id: updatedUser._id,
@@ -260,10 +385,15 @@ router.put("/me", protect, async (req, res) => {
       profileImage: updatedUser.profileImage,
       isAdmin: updatedUser.isAdmin,
       isEmailVerified: updatedUser.isEmailVerified,
-      token: generateToken(updatedUser._id),
+      // Fresh token: after a password change the old one no longer works
+      token: generateToken(updatedUser),
+      ...(verifyToken && {
+        message: `We sent a link to ${updatedUser.pendingEmail}. Your email changes once you click it.`,
+      }),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("Update profile error:", err.message);
+    res.status(500).json({ error: "Could not update your profile" });
   }
 });
 
@@ -273,9 +403,10 @@ router.put("/me", protect, async (req, res) => {
  */
 router.post("/forgot-password", async (req, res) => {
   try {
-    const { email } = req.body;
+    // Plain-text email only (see asText)
+    const email = asText(req.body.email);
 
-    const user = await User.findOne({ email });
+    const user = email ? await User.findOne({ email }) : null;
     if (!user) {
       // Don't reveal whether email exists
       return res.json({
@@ -328,9 +459,10 @@ router.post("/forgot-password", async (req, res) => {
  */
 router.put("/reset-password/:token", async (req, res) => {
   try {
-    const { password } = req.body;
+    // Plain-text password only
+    const password = asPassword(req.body.password);
 
-    if (!password || password.length < 8) {
+    if (password.length < 8) {
       return res
         .status(400)
         .json({ error: "Password must be at least 8 characters" });
@@ -355,6 +487,8 @@ router.put("/reset-password/:token", async (req, res) => {
 
     // Set new password and clear reset fields
     user.password = password;
+    // Sign out every device: old tokens (maybe stolen) stop working
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
 
@@ -418,14 +552,32 @@ router.post("/google", async (req, res) => {
       return res.status(401).json({ error: "Your Google email address is not verified" });
     }
 
-    let user = await User.findOne({
-      $or: [{ googleId }, { email }],
-    });
+    // The account already linked to this Google account wins; otherwise
+    // look for an account using the same email address
+    let user = (await User.findOne({ googleId })) || (await User.findOne({ email }));
 
     if (user) {
       if (!user.googleId) {
+        // An account with this email whose owner never proved the address:
+        // anyone could have registered it (e.g. to sit in wait for the real
+        // owner). Google has now proved who owns the email, so take the account
+        // back for them: drop the unknown password and sign out every device.
+        if (!user.isEmailVerified) {
+          // Whatever the unknown registrant set up goes: their name, photo,
+          // pending email change and business claims
+          user.name = name || email.split("@")[0];
+          user.profileImage = picture || "";
+          user.pendingEmail = undefined;
+          await CompanyClaim.deleteMany({ user: user._id });
+          user.password = undefined;
+          user.isEmailVerified = true;
+          user.emailVerificationToken = undefined;
+          user.emailVerificationExpire = undefined;
+          user.resetPasswordToken = undefined;
+          user.resetPasswordExpire = undefined;
+          user.tokenVersion = (user.tokenVersion || 0) + 1;
+        }
         user.googleId = googleId;
-        user.authProvider = user.authProvider === "local" ? "local" : user.authProvider;
         if (picture && hasNoRealProfileImage(user)) {
           user.profileImage = picture;
         }
@@ -450,7 +602,7 @@ router.post("/google", async (req, res) => {
       profileImage: user.profileImage,
       isAdmin: user.isAdmin,
       isEmailVerified: user.isEmailVerified,
-      token: generateToken(user._id),
+      token: generateToken(user),
     });
   } catch (err) {
     console.error("Google auth error:", err);
@@ -458,178 +610,8 @@ router.post("/google", async (req, res) => {
   }
 });
 
-/**
- * @route   POST /api/auth/facebook
- * @desc    Sign in or sign up with Facebook
- * @body    { accessToken, userID } — from Facebook's Login SDK
- */
-router.post("/facebook", async (req, res) => {
-  try {
-    const { accessToken, userID } = req.body;
-
-    if (!accessToken || !userID) {
-      return res.status(400).json({ error: "Facebook access token and user ID are required" });
-    }
-
-    const fbRes = await fetch(
-      `https://graph.facebook.com/${userID}?fields=id,name,email,picture.type(large)&access_token=${accessToken}`
-    );
-
-    if (!fbRes.ok) {
-      return res.status(401).json({ error: "Invalid Facebook token" });
-    }
-
-    const fbUser = await fbRes.json();
-
-    if (fbUser.id !== userID) {
-      return res.status(401).json({ error: "Facebook user ID mismatch" });
-    }
-
-    const facebookId = fbUser.id;
-    const email = fbUser.email;
-    const name = fbUser.name;
-    const picture = fbUser.picture?.data?.url;
-
-    if (!email) {
-      return res.status(400).json({
-        error: "Email permission is required. Please grant email access when logging in with Facebook.",
-      });
-    }
-
-    let user = await User.findOne({
-      $or: [{ facebookId }, { email }],
-    });
-
-    if (user) {
-      if (!user.facebookId) {
-        user.facebookId = facebookId;
-        if (picture && hasNoRealProfileImage(user)) {
-          user.profileImage = picture;
-        }
-        await user.save({ validateBeforeSave: false });
-      }
-    } else {
-      user = await User.create({
-        name,
-        email,
-        facebookId,
-        profileImage: picture || "",
-        authProvider: "facebook",
-        isEmailVerified: true,
-      });
-    }
-
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      profileImage: user.profileImage,
-      isAdmin: user.isAdmin,
-      isEmailVerified: user.isEmailVerified,
-      token: generateToken(user._id),
-    });
-  } catch (err) {
-    console.error("Facebook auth error:", err);
-    res.status(500).json({ error: "Facebook authentication failed" });
-  }
-});
-
-/**
- * @route   POST /api/auth/twitter
- * @desc    Sign in or sign up with Twitter/X
- * @body    { code, codeVerifier, redirectUri } — from Twitter OAuth 2.0 PKCE flow
- */
-router.post("/twitter", async (req, res) => {
-  try {
-    const { code, codeVerifier, redirectUri } = req.body;
-
-    if (!code || !codeVerifier || !redirectUri) {
-      return res.status(400).json({ error: "Twitter auth code, verifier, and redirect URI are required" });
-    }
-
-    const clientId = process.env.TWITTER_CLIENT_ID;
-    if (!clientId) {
-      return res.status(500).json({ error: "Twitter authentication is not configured" });
-    }
-
-    const tokenRes = await fetch("https://api.twitter.com/2/oauth2/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: redirectUri,
-        client_id: clientId,
-        code_verifier: codeVerifier,
-      }),
-    });
-
-    if (!tokenRes.ok) {
-      const errData = await tokenRes.text();
-      console.error("Twitter token exchange failed:", errData);
-      return res.status(401).json({ error: "Failed to verify Twitter credentials" });
-    }
-
-    const tokenData = await tokenRes.json();
-
-    const userRes = await fetch("https://api.twitter.com/2/users/me?user.fields=id,name,username,profile_image_url", {
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-      },
-    });
-
-    if (!userRes.ok) {
-      return res.status(401).json({ error: "Could not fetch Twitter profile" });
-    }
-
-    const { data: twitterUser } = await userRes.json();
-    const twitterId = twitterUser.id;
-    const name = twitterUser.name;
-    const username = twitterUser.username;
-    const picture = twitterUser.profile_image_url?.replace("_normal", "_400x400");
-
-    const email = `${username}@twitter.trustpilotafrica.com`;
-
-    let user = await User.findOne({
-      $or: [{ twitterId }, { email }],
-    });
-
-    if (user) {
-      if (!user.twitterId) {
-        user.twitterId = twitterId;
-        if (picture && hasNoRealProfileImage(user)) {
-          user.profileImage = picture;
-        }
-        await user.save({ validateBeforeSave: false });
-      }
-    } else {
-      user = await User.create({
-        name,
-        email,
-        twitterId,
-        profileImage: picture || "",
-        authProvider: "twitter",
-        isEmailVerified: true,
-      });
-    }
-
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      profileImage: user.profileImage,
-      isAdmin: user.isAdmin,
-      isEmailVerified: user.isEmailVerified,
-      token: generateToken(user._id),
-    });
-  } catch (err) {
-    console.error("Twitter auth error:", err);
-    res.status(500).json({ error: "Twitter authentication failed" });
-  }
-});
-
+// Facebook and Twitter sign-in were removed: the site never used them, and
+// their token checks could be abused to log in as other users.
 
 // ======================
 // ADMIN MANAGEMENT
@@ -642,7 +624,9 @@ router.post("/twitter", async (req, res) => {
  */
 router.put("/make-admin", async (req, res) => {
   try {
-    const { email, adminSecret } = req.body;
+    // Plain-text values only (see asText)
+    const email = asText(req.body.email);
+    const adminSecret = req.body.adminSecret;
 
     if (!process.env.ADMIN_SECRET || adminSecret !== process.env.ADMIN_SECRET) {
       return res.status(403).json({ error: "Invalid admin secret" });
@@ -686,12 +670,21 @@ router.put("/make-admin", async (req, res) => {
  * @desc    Register a new user AND auto-create a pending CompanyClaim
  * @body    { name, email, password, companyName, companyUrl, role, jobTitle, reason }
  */
-const Company = require("../models/Company");
-const CompanyClaim = require("../models/CompanyClaim");
+
 
 router.post("/register-business", async (req, res) => {
   try {
-    const { name, email, password, companyName, companyUrl, role, jobTitle, reason } = req.body;
+    // Plain-text values only (see asText)
+    const name = asText(req.body.name);
+    const email = asText(req.body.email);
+    const password = asPassword(req.body.password);
+    const companyName = asText(req.body.companyName);
+    const companyUrl = asText(req.body.companyUrl);
+    const role = asText(req.body.role);
+    const jobTitle = asText(req.body.jobTitle);
+    const reason = asText(req.body.reason);
+    // Company picked on its page ("Claim this business"); preferred over the name
+    const claimCompanyId = asText(req.body.claimCompanyId);
 
     // --- Validate required fields ---
     if (!name || !email || !password || !companyName) {
@@ -757,10 +750,16 @@ router.post("/register-business", async (req, res) => {
     }
 
     // --- Step 2: Find or create the company ---
-    const escapedName = companyName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    let company = await Company.findOne({
-      name: { $regex: new RegExp(`^${escapedName}$`, "i") }
-    });
+    // The exact company the user clicked "Claim" on, when given. Several
+    // branches can share a name, so the name alone may pick the wrong one.
+    let company = null;
+    if (claimCompanyId && mongoose.Types.ObjectId.isValid(claimCompanyId)) {
+      company = await Company.findById(claimCompanyId);
+    }
+    // Otherwise match by name (exact, case-insensitive, regex characters escaped)
+    if (!company) {
+      company = await Company.findOne({ name: exactTextFilter(companyName) });
+    }
 
     if (!company) {
       company = await Company.create({
@@ -788,7 +787,7 @@ router.post("/register-business", async (req, res) => {
       profileImage: user.profileImage,
       isAdmin: user.isAdmin,
       isEmailVerified: false,
-      token: generateToken(user._id),
+      token: generateToken(user),
       message: "Account created! Please check your email to verify your account.",
       businessRegistration: {
         companyName: company.name,
