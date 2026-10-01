@@ -10,6 +10,10 @@
 const Company = require("../models/Company");
 const { searchText, getPlaceForImport } = require("./googlePlaces");
 const { ImportSkipError } = require("./googleImport");
+// Shared domain parsing (same rules as companies and brands)
+const { extractDomain } = require("./domains");
+// Attach a newly linked location to its brand when the website domain matches
+const { findBrandForDomain } = require("./brands");
 
 // Words that don't help tell businesses apart
 const NAME_STOPWORDS = new Set([
@@ -58,13 +62,8 @@ function nameSimilarity(a, b) {
 }
 
 function domainOf(url) {
-  if (!url) return "";
-  try {
-    const withScheme = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-    return new URL(withScheme).hostname.toLowerCase().replace(/^www\./, "");
-  } catch {
-    return "";
-  }
+  // Shared parser; "" instead of null keeps the comparisons below simple
+  return extractDomain(url) || "";
 }
 
 // Shown to admins as a hint: does the address mention our city (or, if
@@ -135,7 +134,9 @@ async function findConfidentMatch(company) {
  * Store the place ID on the company and fill empty website/address/phone.
  * Pass `details` from getPlaceForImport to avoid a second lookup.
  */
-const FILLABLE_FIELDS = { url: "website", address: "address", phone: "phone" };
+// Company field -> place field. Only empty company fields are filled.
+// state is safe to fill: unlike name/city/country it is not part of the slug.
+const FILLABLE_FIELDS = { url: "website", address: "address", phone: "phone", state: "state" };
 
 function alreadyLinkedError(other) {
   return new ImportSkipError(`This Google place is already linked to "${other.name}"`, 409, {
@@ -156,7 +157,7 @@ async function linkCompanyToPlace(companyId, placeId, details = null) {
   if (other) throw alreadyLinkedError(other);
 
   // Clear anything a previous link filled in before filling again
-  for (const field of company.googleFilledFields || []) company[field] = "";
+  for (const field of company.googleFilledFields || []) clearFilledField(company, field);
 
   const filled = [];
   for (const [field, placeField] of Object.entries(FILLABLE_FIELDS)) {
@@ -167,6 +168,17 @@ async function linkCompanyToPlace(companyId, placeId, details = null) {
   }
   company.googlePlaceId = place.placeId;
   company.googleFilledFields = filled.length ? filled : undefined;
+  // Not in a brand, and no admin decided its brand by hand: join the brand
+  // that owns this website, if any
+  if (!company.brand && !company.brandSetByAdmin) {
+    // Brand whose domain matches the company's (possibly just filled) website
+    const brand = await findBrandForDomain(Company.extractDomain(company.url));
+    if (brand) {
+      // Join it, and record that the link did this so unlinking can undo it
+      company.brand = brand._id;
+      company.googleFilledFields = [...(company.googleFilledFields || []), "brand"];
+    }
+  }
   await company.save();
 
   // Two links to the same place at the same moment both pass the check
@@ -182,9 +194,17 @@ async function linkCompanyToPlace(companyId, placeId, details = null) {
   return company;
 }
 
+// Empty one field a link filled in; "brand" is removed rather than blanked
+function clearFilledField(company, field) {
+  // brand is an id reference: remove it entirely
+  if (field === "brand") company.brand = undefined;
+  // url/address/phone/state are text: blank them
+  else company[field] = "";
+}
+
 // Remove the link and exactly the fields the link filled in
 async function clearGoogleLink(company) {
-  for (const field of company.googleFilledFields || []) company[field] = "";
+  for (const field of company.googleFilledFields || []) clearFilledField(company, field);
   company.googlePlaceId = undefined;
   company.googleFilledFields = undefined;
   await company.save();

@@ -17,6 +17,10 @@ const googleRoutes = require("./Routes/googleRoutes");
 const companyClaimRoutes = require("./Routes/companyClaimRoutes");
 const companyDashboardRoutes = require("./Routes/companyDashboardRoutes");
 const adminRoutes = require("./Routes/adminRoutes");
+// Public brand pages (overall rating + locations)
+const brandRoutes = require("./Routes/brandRoutes");
+// Admin brand management (create brands, attach locations)
+const adminBrandRoutes = require("./Routes/adminBrandRoutes");
 
 // Load env vars
 dotenv.config();
@@ -113,6 +117,9 @@ app.use("/api/companies", companyRoutes);
 app.use("/api/google", googleRoutes);
 app.use("/api/company-claims", companyClaimRoutes);
 app.use("/api/company-dashboard", companyDashboardRoutes);
+app.use("/api/brands", brandRoutes);
+// Mounted before /api/admin so these requests don't also run adminRoutes' auth
+app.use("/api/admin/brands", adminBrandRoutes);
 app.use("/api/admin", adminRoutes);
 
 // ========================

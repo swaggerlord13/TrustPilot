@@ -11,6 +11,8 @@
 const Company = require("../models/Company");
 const Category = require("../models/Category");
 const { getPlaceForImport } = require("./googlePlaces");
+// Admin-run imports join the brand that owns the same website domain
+const { findBrandForDomain } = require("./brands");
 
 // ============================================================
 // Google Places → Trustpilotafrica category mapping
@@ -228,6 +230,9 @@ async function importPlaceAsCompany(placeId, { categoryOverride, fallbackCountry
   const category = await findOrCreateCategory(categoryName);
   if (!category) throw new ImportSkipError(`Category "${categoryName}" not found in our DB`);
 
+  // Brand with the same website domain (e.g. every mtn.ng location -> "MTN")
+  const brand = await findBrandForDomain(Company.extractDomain(place.website));
+
   try {
     return await Company.create({
       name: place.name,
@@ -239,7 +244,11 @@ async function importPlaceAsCompany(placeId, { categoryOverride, fallbackCountry
       phone: place.phone,
       country: place.country || fallbackCountry,
       city: place.city,
+      // State or region from Google, used for brand location filters
+      state: place.state,
       source: "google",
+      // Brand id, or undefined when no brand owns this website
+      brand: brand?._id,
     });
   } catch (err) {
     if (err.code === 11000) {
