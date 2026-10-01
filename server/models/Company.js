@@ -51,31 +51,13 @@ const companySchema = new mongoose.Schema(
       default: "",
     },
 
-    // Google Places data
+    // Google Places link. Google's terms only allow the place ID to be
+    // stored; the rating and reviews are fetched live (GET /api/google/reviews/:companyId).
     googlePlaceId: {
       type: String,
       index: true,
       sparse: true,
     },
-    googleRating: {
-      type: Number,
-      default: null,
-    },
-    googleReviewCount: {
-      type: Number,
-      default: 0,
-    },
-    googleReviews: [
-      {
-        authorName: String,
-        rating: Number,
-        text: String,
-        relativeTimeDescription: String,
-        time: Number,
-        profilePhotoUrl: String,
-      },
-    ],
-    googlePhotos: [String],
     address: { type: String },
     phone: { type: String },
     country: { type: String },

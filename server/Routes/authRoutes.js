@@ -403,8 +403,10 @@ router.post("/google", async (req, res) => {
       });
       googleUser = ticket.getPayload();
     } catch (err) {
-      // Logged so outages (e.g. fetching Google's signing certs) are visible
-      console.warn("Google token verification failed:", err.message);
+      // Logged so outages (e.g. fetching Google's signing certs) are visible.
+      // Only the reason before the first ":" is logged; the library appends
+      // the raw token or its payload (with the user's email) after it.
+      console.warn("Google token verification failed:", String(err.message).split(":")[0]);
       return res.status(401).json({ error: "Invalid Google token" });
     }
 

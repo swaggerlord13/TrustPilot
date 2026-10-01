@@ -1,26 +1,32 @@
 /**
- * Seed script — pulls popular African companies from Google Places API
+ * Seed script — pulls popular African companies from Google Places API (New)
  * and stores them in the DB under the correct category.
  *
  * Usage:
  *   1. Add GOOGLE_PLACES_API_KEY=your_key to server/.env
+ *      (enable "Places API (New)" for the key)
  *   2. Run: node scripts/seedGoogleCompanies.js
  *
- * Searches for well-known businesses across major African countries,
- * fetches details + up to 5 Google reviews, and saves them.
+ * Only listing basics + the Google place ID are stored. Google ratings and
+ * reviews are not stored; company pages load them live.
  * Skips any company already in DB (matched by googlePlaceId or name).
+ *
+ * COST: every search and every imported company is a billed Google request.
+ * With all countries and queries below that is ~340 searches and up to
+ * ~1,700 place lookups, so trim the lists or set daily quotas first.
  */
 
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
 const Company = require("../models/Company");
 const Category = require("../models/Category");
+const { searchText, GooglePlacesError } = require("../utils/googlePlaces");
+const { importPlaceAsCompany, ImportSkipError } = require("../utils/googleImport");
 
-const API_KEY = process.env.GOOGLE_PLACES_API_KEY;
-if (!API_KEY) {
+if (!process.env.GOOGLE_PLACES_API_KEY) {
   console.error("ERROR: Set GOOGLE_PLACES_API_KEY in your .env file first.");
   console.error("Get one at https://console.cloud.google.com -> APIs & Services -> Credentials");
-  console.error("Enable 'Places API' for the key.");
+  console.error("Enable 'Places API (New)' for the key.");
   process.exit(1);
 }
 
@@ -96,45 +102,6 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function extractLocation(components = []) {
-  let city = "";
-  let country = "";
-  for (const c of components) {
-    if (c.types.includes("locality")) city = c.long_name;
-    if (c.types.includes("country")) country = c.long_name;
-  }
-  return { city, country };
-}
-
-async function searchPlaces(query) {
-  const url =
-    "https://maps.googleapis.com/maps/api/place/textsearch/json?query=" +
-    encodeURIComponent(query) +
-    "&key=" +
-    API_KEY;
-  const res = await fetch(url);
-  const data = await res.json();
-  if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
-    console.warn("  Warning: " + query + " -> " + data.status);
-  }
-  return data.results || [];
-}
-
-async function getPlaceDetails(placeId) {
-  const fields =
-    "place_id,name,formatted_address,formatted_phone_number,website,rating,user_ratings_total,reviews,photos,types,address_components";
-  const url =
-    "https://maps.googleapis.com/maps/api/place/details/json?place_id=" +
-    placeId +
-    "&fields=" +
-    fields +
-    "&key=" +
-    API_KEY;
-  const res = await fetch(url);
-  const data = await res.json();
-  return data.status === "OK" ? data.result : null;
-}
-
 // ───────── main ─────────
 
 async function main() {
@@ -166,21 +133,20 @@ async function main() {
         continue;
       }
 
-      const places = await searchPlaces(fullQuery);
+      let places;
+      try {
+        // Take top 5 results per query per country
+        places = await searchText(fullQuery, { maxResults: 5 });
+      } catch (err) {
+        console.warn("  Warning: " + fullQuery + " -> " + err.message);
+        totalErrors++;
+        continue;
+      }
       if (places.length === 0) continue;
 
-      // Take top 5 results per query per country
-      const top = places.slice(0, 5);
       let batch = 0;
 
-      for (const place of top) {
-        // Skip if already imported by Google Place ID
-        const exists = await Company.findOne({ googlePlaceId: place.place_id });
-        if (exists) {
-          totalSkipped++;
-          continue;
-        }
-
+      for (const place of places) {
         // Skip if company with same name already exists
         const nameExists = await Company.findOne({
           name: {
@@ -195,65 +161,21 @@ async function main() {
           continue;
         }
 
-        // Fetch full details (reviews, phone, website, photos)
-        const detail = await getPlaceDetails(place.place_id);
-        if (!detail) {
-          totalErrors++;
-          continue;
-        }
-
-        const { city, country } = extractLocation(
-          detail.address_components || []
-        );
-
-        // Format Google reviews (up to 5)
-        const googleReviews = (detail.reviews || []).map((r) => ({
-          authorName: r.author_name,
-          rating: r.rating,
-          text: r.text,
-          relativeTimeDescription: r.relative_time_description,
-          time: r.time,
-          profilePhotoUrl: r.profile_photo_url || "",
-        }));
-
-        // Get up to 3 photos
-        const googlePhotos = (detail.photos || []).slice(0, 3).map(
-          (p) =>
-            "https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photo_reference=" +
-            p.photo_reference +
-            "&key=" +
-            API_KEY
-        );
-
         try {
-          const company = new Company({
-            name: detail.name,
-            url: detail.website || "",
-            description: detail.name + " — " + (detail.formatted_address || ""),
-            category: categoryId,
-            logo: googlePhotos.length > 0 ? googlePhotos[0] : "",
-            googlePlaceId: detail.place_id,
-            googleRating: detail.rating || null,
-            googleReviewCount: detail.user_ratings_total || 0,
-            googleReviews,
-            googlePhotos,
-            address: detail.formatted_address || "",
-            phone: detail.formatted_phone_number || "",
-            country: country || countryName,
-            city,
-            source: "google",
+          await importPlaceAsCompany(place.placeId, {
+            categoryOverride: categoryName,
+            fallbackCountry: countryName,
           });
-
-          await company.save();
           totalImported++;
           batch++;
         } catch (err) {
-          if (err.code === 11000) {
+          if (err instanceof ImportSkipError) {
             totalSkipped++;
+          } else if (err instanceof GooglePlacesError) {
+            console.warn("  Warning: " + place.name + " -> " + err.message);
+            totalErrors++;
           } else {
-            console.error(
-              "  Error saving " + detail.name + ": " + err.message
-            );
+            console.error("  Error saving " + place.name + ": " + err.message);
             totalErrors++;
           }
         }
