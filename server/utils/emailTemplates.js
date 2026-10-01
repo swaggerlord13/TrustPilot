@@ -1,5 +1,5 @@
 /**
- * Professional HTML email templates for TrustPilot Africa
+ * Professional HTML email templates for Trustpilotafrica
  *
  * All emails share the same branded wrapper:
  *   - Company logo at the top
@@ -9,7 +9,7 @@
  */
 
 const BRAND = {
-  name: "TrustPilot Africa",
+  name: "Trustpilotafrica",
   url: "https://trustpilotafrica.com",
   logo: "https://trustpilotafrica.com/trustpilotafricalogo.png",
   primaryColor: "#0052CC",
@@ -136,7 +136,7 @@ function passwordReset({ userName, resetUrl }) {
       Hi ${userName},
     </p>
     <p style="margin:0 0 4px 0; font-size:15px; color:${BRAND.textColor}; line-height:1.6;">
-      Someone requested a password reset for your TrustPilot Africa account. Click the button below to choose a new password.
+      Someone requested a password reset for your Trustpilotafrica account. Click the button below to choose a new password.
     </p>
 
     ${button("Reset My Password", resetUrl)}
@@ -169,7 +169,7 @@ function emailVerification({ userName, verifyUrl }) {
       Hi ${userName},
     </p>
     <p style="margin:0 0 4px 0; font-size:15px; color:${BRAND.textColor}; line-height:1.6;">
-      Welcome to TrustPilot Africa! To start leaving reviews and exploring trusted companies across Africa, please verify your email address.
+      Welcome to Trustpilotafrica! To start leaving reviews and exploring trusted companies across Africa, please verify your email address.
     </p>
 
     ${button("Verify My Email", verifyUrl)}
@@ -192,7 +192,7 @@ function emailVerification({ userName, verifyUrl }) {
 function welcomeEmail({ userName }) {
   const body = `
     <h2 style="margin:0 0 8px 0; font-size:22px; font-weight:700; color:${BRAND.textColor}; text-align:center;">
-      Welcome to TrustPilot Africa!
+      Welcome to Trustpilotafrica!
     </h2>
     <p style="margin:0 0 20px 0; font-size:14px; color:${BRAND.mutedColor}; text-align:center;">
       Your email has been verified

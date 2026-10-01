@@ -215,7 +215,7 @@ async function main() {
 
   const searches = opts.countries.length * opts.queries.length;
   const maxLookups = opts.dryRun ? 0 : Math.min(searches * opts.perSearch, opts.max);
-  console.log("TrustPilot.Africa - Google Places Seed Script");
+  console.log("Trustpilotafrica - Google Places Seed Script");
   console.log("==============================================");
   console.log("Countries:   " + opts.countries.join(", "));
   console.log("Searches:    " + opts.queries.map(([q]) => q).join(", "));

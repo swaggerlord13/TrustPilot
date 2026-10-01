@@ -1,13 +1,17 @@
 // Run this script once to add slugs to existing companies
 // Save as: scripts/addSlugsToCompanies.js
 
+require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
-const Company = require("../models/Company"); // Adjust path as needed
+const Company = require("../models/Company");
 
-// Connect to your database
-mongoose.connect(
-  "mongodb+srv://swaggerlord13:Iamswaggerlord13@trustpilot.6un5ica.mongodb.net/?retryWrites=true&w=majority&appName=TrustPilot"
-); // Replace with your actual connection string
+// Connection string comes from server/.env (never hard-code credentials)
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
+if (!MONGO_URI) {
+  console.error("No MONGO_URI found in environment. Set it in server/.env");
+  process.exit(1);
+}
+mongoose.connect(MONGO_URI);
 
 const generateSlug = (name) => {
   return name
