@@ -40,10 +40,13 @@ const REVIEWS_FIELD_MASK = ["rating", "userRatingCount", "reviews", "googleMapsU
 const PLACE_ID_PATTERN = /^[A-Za-z0-9_-]{10,300}$/;
 
 class GooglePlacesError extends Error {
-  constructor(message, status) {
+  // status: what our API returns; googleStatus: Google's own HTTP status
+  // (e.g. 429 when a quota or daily limit is reached)
+  constructor(message, status, googleStatus = null) {
     super(message);
     this.name = "GooglePlacesError";
     this.status = status;
+    this.googleStatus = googleStatus;
   }
 }
 
@@ -74,7 +77,7 @@ async function placesRequest(path, { method = "GET", fieldMask, body } = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const message = data.error?.message || `Google Places request failed (${res.status})`;
-    throw new GooglePlacesError(message, res.status === 404 ? 404 : 502);
+    throw new GooglePlacesError(message, res.status === 404 ? 404 : 502, res.status);
   }
   return data;
 }
