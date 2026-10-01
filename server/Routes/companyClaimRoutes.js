@@ -165,7 +165,8 @@ router.put("/:id/approve", protect, admin, async (req, res) => {
     claim.status = "approved";
     claim.approvedAt = new Date();
     claim.approvedBy = req.user._id;
-    claim.adminNotes = req.body.notes || "";
+    // Optional note from the admin (plain text only)
+    claim.adminNotes = typeof req.body?.notes === "string" ? req.body.notes.trim().slice(0, 1000) : "";
     await claim.save();
 
     res.json({
@@ -198,11 +199,13 @@ router.put("/:id/reject", protect, admin, async (req, res) => {
 
     claim.status = "rejected";
     claim.rejectedAt = new Date();
-    claim.adminNotes = req.body.notes || "";
+    // Optional note from the admin (plain text only)
+    claim.adminNotes = typeof req.body?.notes === "string" ? req.body.notes.trim().slice(0, 1000) : "";
     await claim.save();
 
+    // The user or company may have been deleted since the claim was made
     res.json({
-      message: `Claim by ${claim.user.name} for ${claim.company.name} rejected`,
+      message: `Claim by ${claim.user?.name || "a deleted user"} for ${claim.company?.name || "a deleted company"} rejected`,
       claim,
     });
   } catch (err) {
