@@ -323,7 +323,7 @@ router.get("/reviews", async (req, res) => {
     const [reviews, total] = await Promise.all([
       Review.find(filter)
         .populate("user", "name email profileImage")
-        .populate("company", "name logo slug")
+        .populate("company", "name logo slug url")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)

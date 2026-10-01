@@ -191,9 +191,7 @@ exports.getBestCompaniesByCategory = async (req, res) => {
           comment: item.bestReviewData.comment,
           rating: item.bestReviewData.rating,
           user: item.bestReviewData.user.name || "Anonymous",
-          image:
-            item.bestReviewData.user.profileImage ||
-            "https://via.placeholder.com/100?text=User",
+          image: item.bestReviewData.user.profileImage || "",
           date: new Date(item.bestReviewData.createdAt).toLocaleDateString(
             "en-US",
             {
@@ -206,9 +204,7 @@ exports.getBestCompaniesByCategory = async (req, res) => {
           companyId: item.company._id,
           companySlug: item.company.slug,
           url: `/company/${item.company.slug}`,
-          companyimage:
-            item.company.logo ||
-            "https://via.placeholder.com/150?text=Company+Logo",
+          companyimage: item.company.logo || "",
           companyUrl: item.company.url || "",
           category: categoryInfo.categoryName,
           avgRating: Math.round(item.avgRating * 10) / 10,
@@ -519,12 +515,7 @@ exports.getLatestBestReviews = async (req, res) => {
           comment: 1,
           rating: 1,
           user: "$userData.name",
-          image: {
-            $ifNull: [
-              "$userData.profileImage",
-              "https://via.placeholder.com/100?text=User",
-            ],
-          },
+          image: { $ifNull: ["$userData.profileImage", ""] },
           date: {
             $dateToString: {
               format: "%B %d, %Y",
@@ -542,7 +533,7 @@ exports.getLatestBestReviews = async (req, res) => {
               {
                 $ifNull: [
                   "$companyData.companyImage",
-                  "https://via.placeholder.com/150?text=Company+Logo",
+                  "",
                 ],
               },
             ],

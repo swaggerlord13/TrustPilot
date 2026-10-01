@@ -72,7 +72,7 @@ router.post("/", protect, async (req, res) => {
 router.get("/my-claims", protect, async (req, res) => {
   try {
     const claims = await CompanyClaim.find({ user: req.user._id })
-      .populate("company", "name slug logo")
+      .populate("company", "name slug logo url")
       .sort({ createdAt: -1 });
 
     res.json(claims);
@@ -119,7 +119,7 @@ router.get("/pending", protect, admin, async (req, res) => {
 
     const pendingClaims = await CompanyClaim.find({ status: "pending" })
       .populate("user", "name email profileImage")
-      .populate("company", "name slug logo")
+      .populate("company", "name slug logo url")
       .sort({ createdAt: -1 });
 
     res.json({ claims: pendingClaims });
