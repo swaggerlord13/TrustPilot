@@ -118,8 +118,9 @@ router.get("/:companyId/stats", protect, requireCompanyAccess, async (req, res) 
 router.get("/:companyId/reviews", protect, requireCompanyAccess, async (req, res) => {
   try {
     const companyId = req.company._id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    // Page >= 1 and 1..50 reviews per page
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
     const skip = (page - 1) * limit;
 
     // Sort options
@@ -138,7 +139,9 @@ router.get("/:companyId/reviews", protect, requireCompanyAccess, async (req, res
 
     const [reviews, total] = await Promise.all([
       Review.find({ company: companyId })
-        .populate("user", "name email profileImage")
+        // Name and photo only: reviewers' email addresses stay private,
+        // even from the business they reviewed
+        .populate("user", "name profileImage")
         .sort(sortOption)
         .skip(skip)
         .limit(limit)

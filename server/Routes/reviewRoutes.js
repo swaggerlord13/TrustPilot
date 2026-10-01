@@ -2,7 +2,8 @@ const express = require("express");
 const Review = require("../models/Review");
 const Company = require("../models/Company");
 const User = require("../models/User");
-const { protect } = require("../middleware/authMiddleware");
+// requireVerified: only verified emails may post (stops fake-review bots)
+const { protect, requireVerified } = require("../middleware/authMiddleware");
 const ReviewReply = require("../models/ReviewReply");
 const UserReviewReply = require("../models/UserReviewReply");
 const router = express.Router();
@@ -15,7 +16,7 @@ const { reviewSortFor } = require("../utils/reviewSort");
  * @desc    Create a new review for a company
  * @access  Protected (requires login)
  */
-router.post("/", protect, async (req, res) => {
+router.post("/", protect, requireVerified, async (req, res) => {
   try {
     const { companyId, rating, comment, title } = req.body;
 
@@ -166,7 +167,7 @@ router.get("/user/:userId", async (req, res) => {
  * @desc    Update a review (only by the author)
  * @access  Protected
  */
-router.put("/:reviewId", protect, async (req, res) => {
+router.put("/:reviewId", protect, requireVerified, async (req, res) => {
   try {
     const { rating, comment, title } = req.body;
     const reviewId = req.params.reviewId;
@@ -406,7 +407,7 @@ router.get("/company/:companyId/with-replies", async (req, res) => {
 
 
 // POST - User replies to a company response
-router.post("/:reviewId/user-reply", protect, async (req, res) => {
+router.post("/:reviewId/user-reply", protect, requireVerified, async (req, res) => {
   try {
     const { content } = req.body;
     if (!content || !content.trim()) {
@@ -436,7 +437,7 @@ router.post("/:reviewId/user-reply", protect, async (req, res) => {
 });
 
 // PUT - Update user reply
-router.put("/:reviewId/user-reply", protect, async (req, res) => {
+router.put("/:reviewId/user-reply", protect, requireVerified, async (req, res) => {
   try {
     const { content } = req.body;
     if (!content || !content.trim()) {

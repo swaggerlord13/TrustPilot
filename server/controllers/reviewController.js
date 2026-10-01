@@ -1,3 +1,7 @@
+// Escapes user search text so it is matched literally
+const { escapeRegex } = require("../utils/brands");
+// Plain-text query values only
+const { asText } = require("../utils/input");
 // Add this to your reviewRoutes.js or create a new controller
 
 const Review = require("../models/Review");
@@ -9,7 +13,12 @@ const Review = require("../models/Review");
  */
 exports.getMixedReviews = async (req, res) => {
   try {
-    const { page = 1, limit = 20, search } = req.query;
+    // Page >= 1 and 1..50 reviews per page, so one request can't ask for everything
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
+    // Search text, matched literally (plain text only, special characters escaped)
+    const searchText = asText(req.query.search, 100);
+    const search = searchText ? escapeRegex(searchText) : "";
 
 
     // Get a mix of reviews using MongoDB aggregation
@@ -75,8 +84,8 @@ exports.getMixedReviews = async (req, res) => {
       { $sort: { randomField: 1 } },
 
       // Skip and limit for pagination
-      { $skip: (parseInt(page) - 1) * parseInt(limit) },
-      { $limit: parseInt(limit) },
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
 
       // Format the output
       {
@@ -149,18 +158,18 @@ exports.getMixedReviews = async (req, res) => {
     ];
     const countResult = await Review.aggregate(countPipeline);
     const totalReviews = countResult.length > 0 ? countResult[0].total : 0;
-    const totalPages = Math.ceil(totalReviews / parseInt(limit));
+    const totalPages = Math.ceil(totalReviews / limit);
 
 
     res.json({
       reviews: mixedReviews,
       pagination: {
-        currentPage: parseInt(page),
+        currentPage: page,
         totalPages,
         totalReviews,
-        hasNextPage: parseInt(page) < totalPages,
-        hasPrevPage: parseInt(page) > 1,
-        limit: parseInt(limit),
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+        limit: limit,
       },
     });
   } catch (error) {

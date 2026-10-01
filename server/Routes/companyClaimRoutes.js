@@ -1,7 +1,8 @@
 const express = require("express");
 const CompanyClaim = require("../models/CompanyClaim");
 const Company = require("../models/Company");
-const { protect } = require("../middleware/authMiddleware");
+// requireVerified: only verified emails may claim a business
+const { protect, requireVerified } = require("../middleware/authMiddleware");
 const { admin } = require("../middleware/adminMiddleware");
 const router = express.Router();
 
@@ -10,7 +11,7 @@ const router = express.Router();
  * @desc    Claim a company (user must be logged in)
  * @body    { companyId, role?, reason?, jobTitle? }
  */
-router.post("/", protect, async (req, res) => {
+router.post("/", protect, requireVerified, async (req, res) => {
   try {
     const { companyId, role, reason, jobTitle } = req.body;
 
@@ -136,7 +137,7 @@ router.put("/:id/approve", protect, admin, async (req, res) => {
   try {
 
     const claim = await CompanyClaim.findById(req.params.id)
-      .populate("user", "name email")
+      .populate("user", "name email isEmailVerified")
       .populate("company", "name slug");
 
     if (!claim) {
@@ -145,6 +146,17 @@ router.put("/:id/approve", protect, admin, async (req, res) => {
 
     if (claim.status !== "pending") {
       return res.status(400).json({ error: `Claim is already ${claim.status}` });
+    }
+
+    // The account or company was deleted after the claim was made
+    if (!claim.user || !claim.company) {
+      return res.status(400).json({ error: "The user or company for this claim no longer exists" });
+    }
+
+    // Business sign-up creates a claim before the email is verified; only a
+    // verified owner may get dashboard access
+    if (!claim.user.isEmailVerified) {
+      return res.status(400).json({ error: "This user hasn't verified their email yet. Ask them to click the link in their inbox, then approve." });
     }
 
     claim.status = "approved";

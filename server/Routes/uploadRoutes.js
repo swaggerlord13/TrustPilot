@@ -6,7 +6,9 @@ const {
   uploadCompanyLogo,
   uploadUserProfile,
 } = require("../middleware/imageUpload");
-const { protect } = require("../middleware/authMiddleware"); // Assuming you have auth middleware
+const { protect } = require("../middleware/authMiddleware");
+// Admin check for destructive actions
+const { admin } = require("../middleware/adminMiddleware");
 
 // Upload company logo
 router.post(
@@ -58,12 +60,14 @@ router.post(
   }
 );
 
-// Delete image from Cloudinary (optional)
-router.delete("/delete-image", protect, async (req, res) => {
+// Delete image from Cloudinary. Admin only: any image id can be passed, so
+// letting ordinary users call this would let anyone wipe other people's logos
+router.delete("/delete-image", protect, admin, async (req, res) => {
   try {
     const { publicId } = req.body;
 
-    if (!publicId) {
+    // Must be a plain text id (not an object or array)
+    if (!publicId || typeof publicId !== "string") {
       return res.status(400).json({ error: "Public ID is required" });
     }
 

@@ -21,6 +21,9 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // New address waiting for its verification link to be clicked; the
+    // current email keeps working until then (so a typo can't lock anyone out)
+    pendingEmail: { type: String },
     emailVerificationToken: String,
     emailVerificationExpire: Date,
     // Social auth provider IDs
@@ -35,6 +38,8 @@ const userSchema = new mongoose.Schema(
     },
     resetPasswordToken: String,
     resetPasswordExpire: Date,
+    // Bumped to sign the user out everywhere (see utils/token.js)
+    tokenVersion: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

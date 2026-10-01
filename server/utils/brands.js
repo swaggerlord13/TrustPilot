@@ -208,6 +208,7 @@ function isValidId(id) {
 module.exports = {
   MAX_LOCATIONS_PAGE_SIZE,
   escapeRegex,
+  exactTextFilter,
   ratingStats,
   foldRatingRows,
   getBrandSummary,
