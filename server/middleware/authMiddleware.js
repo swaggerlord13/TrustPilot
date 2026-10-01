@@ -18,6 +18,12 @@ const protect = async (req, res, next) => {
       // Attach user to request (exclude password)
       req.user = await User.findById(decoded.id).select("-password");
 
+      // Token is valid but the account was deleted: treat as logged out
+      // instead of letting routes crash on req.user._id
+      if (!req.user) {
+        return res.status(401).json({ error: "Not authorized, user not found" });
+      }
+
       next();
     } catch (err) {
       return res.status(401).json({ error: "Not authorized, token failed" });
