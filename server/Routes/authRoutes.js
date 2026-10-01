@@ -19,6 +19,12 @@ const getClientUrl = () => {
   return process.env.CLIENT_URL || "https://trustpilotafrica.com";
 };
 
+// Helper to check if a user has no real profile photo yet
+// (empty, or the old via.placeholder.com value older accounts were saved with)
+const hasNoRealProfileImage = (user) => {
+  return !user.profileImage || user.profileImage.startsWith("https://via.placeholder.com/");
+};
+
 /**
  * @route   POST /api/auth/register
  */
@@ -398,7 +404,7 @@ router.post("/google", async (req, res) => {
       if (!user.googleId) {
         user.googleId = googleId;
         user.authProvider = user.authProvider === "local" ? "local" : user.authProvider;
-        if (picture && user.profileImage === "https://via.placeholder.com/100") {
+        if (picture && hasNoRealProfileImage(user)) {
           user.profileImage = picture;
         }
         await user.save({ validateBeforeSave: false });
@@ -409,7 +415,7 @@ router.post("/google", async (req, res) => {
         name,
         email,
         googleId,
-        profileImage: picture || "https://via.placeholder.com/100",
+        profileImage: picture || "",
         authProvider: "google",
         isEmailVerified: true,
       });
@@ -475,7 +481,7 @@ router.post("/facebook", async (req, res) => {
     if (user) {
       if (!user.facebookId) {
         user.facebookId = facebookId;
-        if (picture && user.profileImage === "https://via.placeholder.com/100") {
+        if (picture && hasNoRealProfileImage(user)) {
           user.profileImage = picture;
         }
         await user.save({ validateBeforeSave: false });
@@ -485,7 +491,7 @@ router.post("/facebook", async (req, res) => {
         name,
         email,
         facebookId,
-        profileImage: picture || "https://via.placeholder.com/100",
+        profileImage: picture || "",
         authProvider: "facebook",
         isEmailVerified: true,
       });
@@ -571,7 +577,7 @@ router.post("/twitter", async (req, res) => {
     if (user) {
       if (!user.twitterId) {
         user.twitterId = twitterId;
-        if (picture && user.profileImage === "https://via.placeholder.com/100") {
+        if (picture && hasNoRealProfileImage(user)) {
           user.profileImage = picture;
         }
         await user.save({ validateBeforeSave: false });
@@ -581,7 +587,7 @@ router.post("/twitter", async (req, res) => {
         name,
         email,
         twitterId,
-        profileImage: picture || "https://via.placeholder.com/100",
+        profileImage: picture || "",
         authProvider: "twitter",
         isEmailVerified: true,
       });

@@ -87,12 +87,7 @@ exports.getMixedReviews = async (req, res) => {
           rating: 1,
           createdAt: 1,
           user: "$userData.name",
-          userImage: {
-            $ifNull: [
-              "$userData.profileImage",
-              "https://via.placeholder.com/100?text=User",
-            ],
-          },
+          userImage: { $ifNull: ["$userData.profileImage", ""] },
           company: "$companyData.name",
           companySlug: "$companyData.slug",
           companyImage: {
@@ -101,11 +96,12 @@ exports.getMixedReviews = async (req, res) => {
               {
                 $ifNull: [
                   "$companyData.companyImage",
-                  "https://via.placeholder.com/150?text=Company+Logo",
+                  "",
                 ],
               },
             ],
           },
+          companyUrl: { $ifNull: ["$companyData.url", ""] },
           category: "$categoryData.name",
           url: {
             $concat: ["/company/", "$companyData.slug"],
